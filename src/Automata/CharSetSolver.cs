@@ -1099,6 +1099,11 @@ namespace Microsoft.Automata
                 return "" ;
             }
 
+            public IEnumerable<Move<BDD>> GetMovesFrom(int state)
+            {
+                return aut.GetMovesFrom(state);
+            }
+
             #endregion
 
 
@@ -1414,5 +1419,15 @@ namespace Microsoft.Automata
         }
 
         #endregion
+
+        public string SerializePredicate(BDD s)
+        {
+            throw new NotImplementedException();
+        }
+
+        public BDD DeserializePredicate(string s)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

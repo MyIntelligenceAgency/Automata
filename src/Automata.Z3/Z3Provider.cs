@@ -238,6 +238,11 @@ namespace Microsoft.Automata.Z3
             }
         }
 
+        public void SetCompactView()
+        {
+            tpp.compactview = true;
+        }
+
         #region Direct Z3 wrappers
 
         /// <summary>
@@ -3296,6 +3301,16 @@ namespace Microsoft.Automata.Z3
             return tpp.DescribeExpr(t);
         }
 
+        public string PrettyPrint2(Expr t, Func<Expr, string> lookupVarName)
+        {
+            tpp.compactview = true;
+            tpp.__lookupVarName = lookupVarName;
+            string res = tpp.DescribeExpr(t);
+            tpp.compactview = false;
+            tpp.__lookupVarName = null;
+            return res;
+        }
+
         /// <summary>
         /// Use lookup to determine if a term is given a particular presentation.
         /// </summary>
@@ -3637,6 +3652,36 @@ namespace Microsoft.Automata.Z3
         public char ChooseUniformly(Expr s)
         {
             throw new NotSupportedException();
+        }
+
+        public ulong ComputeDomainSize(Expr set)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IEnumerable<char> GenerateAllCharacters(Expr set)
+        {
+            throw new NotImplementedException();
+        }
+
+        public BDD ConvertToCharSet(IBDDAlgebra solver, Expr pred)
+        {
+            return null;
+        }
+
+        public Expr[] GetPartition()
+        {
+            throw new NotImplementedException();
+        }
+
+        public string SerializePredicate(Expr s)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Expr DeserializePredicate(string s)
+        {
+            throw new NotImplementedException();
         }
     }
 }

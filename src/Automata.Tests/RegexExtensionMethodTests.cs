@@ -17,6 +17,7 @@ namespace Automata.Tests
         static string inputFile = "../../../../Automata.Tests/Samples/input.txt";
         static string regexesWithoutAnchorsFile = "../../../../Automata.Tests/Samples/regexesWithoutAnchors.txt";
         //static string regexesWithoutAnchorsFile = "../../../../Automata.Tests/Samples/regex_tiny.txt";
+        static string regexesWithLazyLoops = "../../../../Automata.Tests/Samples/regexesWithLazyLoops.txt";
         static string regexesPerfFile_IgnoreCaseTrue = "regexesPerf_IgnoreCaseTrue.txt";
         static string regexesPerfFile_IgnoreCaseFalse = "regexesPerf_IgnoreCaseFalse.txt";
         static string regexesPerfFile_IsMatch_IgnoreCaseTrue = "regexesPerf_IsMatch_IgnoreCaseTrue.txt";
@@ -58,7 +59,7 @@ namespace Automata.Tests
 
         [TestMethod]
         public void TestRegex_GenerateRandomDataset()
-        { 
+        {
             var regex1 = new Regex(@"^bcd$");
             var set1 = regex1.GenerateRandomDataSet(100);
             Assert.IsTrue(set1.Count == 1, "Incorrect Dataset");
@@ -69,11 +70,11 @@ namespace Automata.Tests
             var set1b = regex1b.GenerateRandomDataSet(100);
             Assert.IsTrue(set1b.Count == 8, "Incorrect Dataset");
             var regex1c = new Regex(@"(?i:^bcd$)");
-            var set1c = regex1c.GenerateRandomDataSet(100,"[bcCdD]");
+            var set1c = regex1c.GenerateRandomDataSet(100, "[bcCdD]");
             Assert.IsTrue(set1c.Count == 4, "Incorrect Dataset");
             //----
             var regex2 = new Regex(@"^(\d[\w-[\d]])+$");
-            var set2 = regex2.GenerateRandomDataSet(100,"[012a-d]", 20);
+            var set2 = regex2.GenerateRandomDataSet(100, "[012a-d]", 20);
             Assert.IsTrue(set2.Count == 100);
             foreach (string s in set2)
                 Assert.IsTrue(Regex.IsMatch(s, "^([0-2][a-d])+$"), "Incorrect Dataset");
@@ -126,23 +127,23 @@ namespace Automata.Tests
             if (nrOfMatches < 1)
                 throw new ArgumentOutOfRangeException();
 
-            string str = sr.GenerateRandomMember(builder);
+            string str = sr.GenerateRandomMember();
 
-            for (int i=1; i < nrOfMatches; i++)
+            for (int i = 1; i < nrOfMatches; i++)
             {
                 if (randomTextSizeLimit > 0)
                 {
                     int k = rnd.Next(0, randomTextSizeLimit);
-                    string tmp = sr.GenerateRandomMember(builder);
+                    string tmp = sr.GenerateRandomMember();
                     int j = rnd.Next(1, tmp.Length);
                     str += tmp.Substring(0, j) + CreateRandomString(k) + tmp.Substring(j);
                 }
-                str += sr.GenerateRandomMember(builder);
+                str += sr.GenerateRandomMember();
             }
             return str;
         }
 
-        [TestMethod]
+        //[TestMethod]
         public void TestRegex_CompileToSymbolicRegex_Matches_IgnoreCaseTrue()
         {
             ClearLog();
@@ -151,7 +152,7 @@ namespace Automata.Tests
             TestRegex_CompileToSymbolicRegex_Matches_Helper(options);
         }
 
-        [TestMethod]
+        //[TestMethod]
         public void TestRegex_CompileToSymbolicRegex_Matches_IgnoreCaseFalse()
         {
             ClearLog();
@@ -168,6 +169,7 @@ namespace Automata.Tests
         void Log(string text)
         {
             File.AppendAllText(myconsole, text + "\r\n");
+            Console.WriteLine(text);
         }
 
         [TestMethod]
@@ -392,7 +394,7 @@ namespace Automata.Tests
                 for (int j = 0; j < 1; j++)
                     for (int i = 0; i < regexes.Length; i++)
                     {
-                        sb.Append(((SymbolicRegex<BV>)matchers[i]).A.GenerateRandomMember(((SymbolicRegex<BV>)matchers[i]).builder));
+                        sb.Append(((SymbolicRegex<BV>)matchers[i]).A.GenerateRandomMember());
                         sb.Append(CreateRandomString(10000));
                     }
                 File.WriteAllText(inputFile, sb.ToString(), Encoding.Unicode);
@@ -429,6 +431,30 @@ namespace Automata.Tests
             File.WriteAllLines(regexesFile, filtered.ToArray());
         }
 
+        List<int> FindRegexesWithLazyLoops()
+        {
+            //set match timeout to 1 second for .net regexes
+            Regex[] regexes = Array.ConvertAll(File.ReadAllLines(regexesWithLazyLoops), x => new Regex(x, RegexOptions.None, new TimeSpan(0, 0, 1)));
+            var res = new List<int>();
+            for (int i = 0; i < regexes.Length; i++)
+            {
+                var re = regexes[i];
+                string reasonWhyNotSupported;
+                var ok = re.IsCompileSupported(out reasonWhyNotSupported);
+                if (!ok)
+                    if (reasonWhyNotSupported.Contains("lazy loop"))
+                        res.Add(i);
+            }
+            return res;
+        }
+        //[TestMethod]
+        public void Test_FindRegexesWithLazyLoops()
+        {
+            var res = FindRegexesWithLazyLoops();
+            var regexes = File.ReadAllLines(regexesWithLazyLoops);
+            Assert.IsTrue(res.Count == regexes.Length);
+        }
+
         public void TestRegex_CompileToSymbolicRegex_Matches_Helper(RegexOptions options)
         {
             //set match timeout to 1 second for .net regexes
@@ -443,7 +469,7 @@ namespace Automata.Tests
             var strArray = str.ToCharArray();
             int k = str.Length;
             //CharSetSolver css = new CharSetSolver();
-            for (int i = 0; i < 10; i++)
+            for (int i = 2; i < 10; i++)
             {
                 var re = regexes[i];
                 var sr = re.Compile();
@@ -517,7 +543,7 @@ namespace Automata.Tests
             int re_tot_ms = 0;
             //repeat each test that many times
             int matchRepeatCount = 10;
-            int randomBlockLimit = 1000;
+            int randomBlockLimit = 10;
             int timeouts = 0;
             //CharSetSolver css = new CharSetSolver();
             for (int i = 0; i < 34; i++)
@@ -525,13 +551,13 @@ namespace Automata.Tests
                 var re = regexes[i];
                 var sr = re.Compile();
 
-                var str = ((SymbolicRegex<BV>)sr).A.GenerateRandomMember(((SymbolicRegex<BV>)sr).builder);
+                var str = sr.GenerateRandomMatch();
                 str = CreateRandomString(randomBlockLimit) + str + CreateRandomString(randomBlockLimit);
 
                 //--------------------------------
                 //--- measure time for sr.Matches
                 int sr_t = System.Environment.TickCount;
-                bool sr_res =false;
+                bool sr_res = false;
                 for (int j = 0; j < matchRepeatCount; j++)
                 {
                     sr_res = sr.IsMatch(str);
@@ -556,7 +582,7 @@ namespace Automata.Tests
                 {
                     //skip this entry because it causes timeout
                     File.AppendAllText(regexesPerfFile, string.Format("--- {1}, sr:{0}ms, re:timeout ---\r\n", sr_t, i + 1));
-                    timeouts +=1;
+                    timeouts += 1;
                     continue;
                 }
                 //---------------------------
@@ -597,32 +623,111 @@ namespace Automata.Tests
         [TestMethod]
         public void TestRegex_CompileToSymbolicRegex_one()
         {
-            var regex = new Regex("[0-9A-Za-z]+");
-            var sr = (SymbolicRegex<BV>)regex.Compile();
-            int size = 50;
-            var dataset = sr.A.GetPositiveDataset(sr.builder, size);
+            var regex = new Regex("[A-Za-z]+");
+            var digits = new Regex("[0-9]{2,3}");
+            var sr = regex.Compile();
+            var sr_digits = digits.Compile();
+            int size = 100;
+            var dataset = new HashSet<string>();
+            for (int i = 0; i < size; i++)
+                dataset.Add(sr.GenerateRandomMatch());
+
             string str = "";
             foreach (var s in dataset)
             {
-                int k = new Random().Next(2,10);
-                str += s + SymbolicRegexTests.CreateRandomString(k);
+                str += s + sr_digits.GenerateRandomMatch();
             }
-            var sr_matches = new HashSet<Tuple<int,int>>(sr.Matches(str));
+            var sr_matches = new HashSet<Tuple<int, int>>(sr.Matches(str));
             var regex_matches = new HashSet<Tuple<int, int>>();
             foreach (Match match in regex.Matches(str))
                 regex_matches.Add(new Tuple<int, int>(match.Index, match.Length));
-            Assert.IsTrue(regex_matches.Count >= size);
             Assert.IsTrue(regex_matches.SetEquals(sr_matches));
         }
 
-        //[TestMethod]
-        public void TestRegex_Bug_IsMatch()
+        [TestMethod]
+        public void TestRegex_Kelvin_Sign_Bug()
         {
-            //Regex r = new Regex("[\u0081-\uFFFF]{1,}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-            Regex r = new Regex("[\u212A-\u212B]{1,}", RegexOptions.IgnoreCase);
-            Regex r2 = new Regex("[\u212A\u212B]{1,}", RegexOptions.IgnoreCase);
-            Assert.IsFalse(r.IsMatch("k")); //<--- BUG 
-            Assert.IsTrue(r2.IsMatch("k")); //<--- correct
+            // '\u212A' is Kelvin sign
+            // '\u212B' is Angstrom sign
+            Regex r = new Regex("^[\u212A-\u212B]$", RegexOptions.IgnoreCase);
+            Regex r2 = new Regex("^[\u212A\u212B]$", RegexOptions.IgnoreCase);
+            Assert.IsTrue(r2.IsMatch("k"), "k must match");
+            Assert.IsTrue(r2.IsMatch("K"), "K must match");
+            Assert.IsTrue(r2.IsMatch("\u212A"), "Kelvin sign must match"); //Kelvin sign
+            Assert.IsTrue(r2.IsMatch("\u212B"), "Angstrom sign must match"); //Angstrom sign
+            Assert.IsTrue(r2.IsMatch("å")); //same as '\xE5' 
+            Assert.IsTrue(r2.IsMatch("Å")); //same as '\xC5'
+            //regexmatcher gives the correct semantics to both regexs
+            var m = r.Compile();
+            Assert.IsTrue(m.IsMatch("k"));
+            Assert.IsTrue(m.IsMatch("K"));
+            Assert.IsTrue(m.IsMatch("\u212A"));
+            Assert.IsTrue(m.IsMatch("\u212B"));
+            Assert.IsTrue(m.IsMatch("å"));
+            Assert.IsTrue(m.IsMatch("Å"));
+            //---
+            var m2 = r2.Compile();
+            Assert.IsTrue(m2.IsMatch("k"));
+            Assert.IsTrue(m2.IsMatch("K"));
+            Assert.IsTrue(m2.IsMatch("\u212A"));
+            Assert.IsTrue(m2.IsMatch("\u212B"));
+            Assert.IsTrue(m2.IsMatch("å"));
+            Assert.IsTrue(m2.IsMatch("Å"));
+            //----------------- BUG in .NET regex matcher ------
+            //culprit: interval notation together with ignore-case 
+            //particular instance here:
+            //for the character '\u212A' (Kelvin sign)
+            //Kelvin sign is considered equivalent to K and k when case is ignored
+            //but this is not true if the interval [\u212A-\u212B] is used
+            //rather than the equivalent [\u212A\u212B] is used
+            Assert.IsFalse(r.IsMatch("k"), "k"); //<--- BUG ---
+            Assert.IsFalse(r.IsMatch("K"), "K"); //<--- BUG ---
+            Assert.IsFalse(r.IsMatch("\u212A"), "\u212A"); //<--- BUG ---
+            Assert.IsFalse(r.IsMatch("\u212B"), "\u212B"); //<--- BUG ---
+            Assert.IsFalse(r.IsMatch("å"), "å"); //<--- BUG ---
+            Assert.IsFalse(r.IsMatch("Å"), "Å"); //<--- BUG ---
+            //--------------------------------------------
+            //works correctly without ignore case
+            Regex r3 = new Regex("^[\u212A-\u212B]$");
+            Assert.IsTrue(r3.IsMatch("\u212A"));
+            Assert.IsTrue(r3.IsMatch("\u212B"));
+            //-----------------------------------------
+            //also, this problem does not occur always with interval + ignore case:
+            Regex r4 = new Regex("^[k-l]$", RegexOptions.IgnoreCase);
+            Assert.IsTrue(r4.IsMatch("\u212A"));
+            Assert.IsTrue(r4.IsMatch("k"));
+            Assert.IsTrue(r4.IsMatch("K"));
+            Regex r5 = new Regex("^[kl]$", RegexOptions.IgnoreCase);
+            Assert.IsTrue(r5.IsMatch("\u212A"));
+            Assert.IsTrue(r5.IsMatch("k"));
+            Assert.IsTrue(r5.IsMatch("K"));
+            //related error for a different range 
+            //clearly \u212B is in the interval [\u00FF-\u21FF] and adding ignore-case cannot remove it from the interval
+            Regex r6 = new Regex("^[\u2129-\u212F]$", RegexOptions.IgnoreCase);
+            Assert.IsTrue(r6.IsMatch("\u2129")); //<--- correct ---- turned greek small letter iota
+            Assert.IsFalse(r6.IsMatch("\u212A"), "Kelvin sign"); //<--- BUG --- Kelvin sign
+            Assert.IsFalse(r6.IsMatch("\u212B"), "Angstrom sign"); //<--- BUG --- Angstrom sign
+            Assert.IsTrue(r6.IsMatch("\u212C")); //<--- correct --- script capital B
+            Assert.IsTrue(r6.IsMatch("\u212D")); //<--- correct --- black-letter capital C
+            Assert.IsTrue(r6.IsMatch("\u212E")); //<--- correct --- 'estimated' symbol
+            Assert.IsTrue(r6.IsMatch("\u212F")); //<--- correct --- script small e
+            Regex r7 = new Regex("^[\u2129-\u212F]$");
+            Assert.IsTrue(r7.IsMatch("\u2129"));
+            Assert.IsTrue(r7.IsMatch("\u212A"));
+            Assert.IsTrue(r7.IsMatch("\u212B"));
+            Assert.IsTrue(r7.IsMatch("\u212C"));
+            Assert.IsTrue(r7.IsMatch("\u212D"));
+            Assert.IsTrue(r7.IsMatch("\u212E"));
+            Assert.IsTrue(r7.IsMatch("\u212F"));
+            //---- separately it works as expected -----
+            Regex r8 = new Regex("^å$", RegexOptions.IgnoreCase);
+            Assert.IsTrue(r8.IsMatch("\u212B")); //Angstrom sign
+            Assert.IsTrue(r8.IsMatch("å"));
+            Assert.IsTrue(r8.IsMatch("Å"));
+            Regex r9 = new Regex("^k$", RegexOptions.IgnoreCase);
+            Assert.IsTrue(r9.IsMatch("\u212A")); //Kelvin sign
+            Assert.IsTrue(r9.IsMatch("k"));
+            Assert.IsTrue(r9.IsMatch("K"));
         }
 
         [TestMethod]
@@ -635,7 +740,7 @@ namespace Automata.Tests
             TestFailure(@"foo\Gbar", @"\G");
             TestFailure(@"\w*?", "lazy loop");
             TestFailure(@"b*?", "lazy loop");
-            TestFailure(@"a{3,4}?", "lazy loop");    
+            TestFailure(@"a{3,4}?", "lazy loop");
             TestFailure(@"(\w)\1", "references");
             TestFailure(@"(?!un)\w+", "prevent constructs");
             TestFailure(@"(?<!un)\w+", "prevent constructs");
@@ -649,7 +754,7 @@ namespace Automata.Tests
             var regex = new Regex(r);
             string failure;
             string whynot;
-            IMatcher sr;
+            RegexMatcher sr;
             bool ok = regex.TryCompile(out sr, out failure);
             bool ok2 = regex.IsCompileSupported(out whynot);
             Assert.IsFalse(ok);
@@ -663,7 +768,7 @@ namespace Automata.Tests
         {
             var regex = new Regex(r);
             string failure;
-            IMatcher sr;
+            RegexMatcher sr;
             bool ok = regex.TryCompile(out sr, out failure);
             Assert.IsTrue(ok);
             Assert.IsTrue(failure == "");
@@ -673,13 +778,13 @@ namespace Automata.Tests
         [TestMethod]
         public void TestCompileToSymbolicRegex_StartupTime()
         {
-            RegexOptions options = RegexOptions.None; 
+            RegexOptions options = RegexOptions.None;
             Regex[] regexes = Array.ConvertAll(File.ReadAllLines(regexesWithoutAnchorsFile), x => new Regex(x, options, new TimeSpan(0, 0, 1)));
             //var css = new CharSetSolver();
             int t = System.Environment.TickCount;
-            var srs = new IMatcher[regexes.Length];
+            var srs = new RegexMatcher[regexes.Length];
             int k = (regexes.Length < 100 ? regexes.Length : 100);
-            for (int i=0; i < regexes.Length; i++)
+            for (int i = 0; i < regexes.Length; i++)
             {
                 string reason;
                 regexes[i].TryCompile(out srs[i], out reason);
@@ -689,13 +794,13 @@ namespace Automata.Tests
         }
 
         [TestMethod]
-        public void TestRegex_Compile_Serialize_Deserialize_Match_Rexexes()
+        public void TestRegex_Compile_Serialize_Deserialize_Match_Regexes()
         {
             TestRegex_Compile_Serialize_Deserialize_Match_Rexexes_helper();
         }
 
         [TestMethod]
-        public void TestRegex_Compile_Serialize_Deserialize_Match_Rexexes_1()
+        public void TestRegex_Compile_Serialize_Deserialize_Match_Regexes_1()
         {
             TestRegex_Compile_Serialize_Deserialize_Match_Rexexes_helper(1);
         }
@@ -721,29 +826,29 @@ namespace Automata.Tests
             int k = (regexes.Length < MAX ? regexes.Length : MAX);
 
             int sr_comp_ms = System.Environment.TickCount;
-            var srs = new SymbolicRegex<BV>[k];
+            var srs = new IMatcher[k];
             for (int i = 0; i < k; i++)
-                srs[i] = (SymbolicRegex<BV>)regexes[i].Compile();
+                srs[i] = regexes[i].Compile();
             sr_comp_ms = System.Environment.TickCount - sr_comp_ms;
 
             Log("Compile time(ms): " + sr_comp_ms);
 
             //var formatter = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter();
-            var formatter = new System.Web.UI.ObjectStateFormatter();
+            //var formatter = new System.Web.UI.ObjectStateFormatter();
             //--- soap formatter does not support generic types
             //var formatter = new System.Runtime.Serialization.Formatters.Soap.SoapFormatter();
 
             int sr_ser_ms = System.Environment.TickCount;
             for (int i = 0; i < k; i++)
-                srs[i].Serialize(string.Format("sr{0}.bin", i), formatter);
+                SerializationTests.SerializeObjectToFile_soap(string.Format("sr{0}.soap", i), srs[i]);
             sr_ser_ms = System.Environment.TickCount - sr_ser_ms;
 
             Log("Serialization time(ms): " + sr_ser_ms);
 
             int sr_deser_ms = System.Environment.TickCount;
-            var srs_ = new SymbolicRegex<BV>[k];
+            var srs_ = new IMatcher[k];
             for (int i = 0; i < k; i++)
-                srs_[i] = SymbolicRegex<BV>.Deserialize(string.Format("sr{0}.bin", i), formatter);
+                srs_[i] = (IMatcher)SerializationTests.DeserializeObjectFromFile_soap(string.Format("sr{0}.soap", i));
             sr_deser_ms = System.Environment.TickCount - sr_deser_ms;
 
             Log("Deserialization time(ms): " + sr_deser_ms);
@@ -812,6 +917,8 @@ namespace Automata.Tests
             sr_tot_ms_d = System.Environment.TickCount - sr_tot_ms_d;
             //--------------
 
+            Assert.AreEqual<int>(sr_tot_matches, sr_tot_matches_d);
+
             Log("AUT_d: " + sr_tot_ms_d);
 
             //--- .net matching on regexes that did not timeout---
@@ -832,14 +939,211 @@ namespace Automata.Tests
 
             Log(".NET: " + re_tot_ms);
 
-            Assert.AreEqual<int>(sr_tot_matches, sr_tot_matches_d);
-
             //allow some variation (+- 5 in either direction)
             Assert.IsTrue(sr_tot_matches <= re_tot_matches + 5);
             Assert.IsTrue(re_tot_matches <= sr_tot_matches + 5);
 
 
             Console.WriteLine(string.Format("total: AUT:{0}ms osr deser{3}, .NET:{1}ms, matchcount={2}", sr_tot_ms, re_tot_ms, re_tot_matches, sr_tot_ms_d));
+        }
+
+        [TestMethod]
+        public void TestMatcher_InternalConsistency()
+        {
+            TestMatcher_InternalConsistency_(RegexOptions.Singleline);
+        }
+
+        void TestMatcher_InternalConsistency_(RegexOptions options)
+        {
+            var regexesFile = "../../../../Automata.Tests/Samples/simpl.txt";
+            var regexes = Array.ConvertAll(File.ReadAllLines(regexesFile), x => new Regex(x, options));
+            int k = regexes.Length;
+            string badone = null;
+            for (int i = 0; i < k; i++)
+            {
+                var regex = regexes[i];
+                RegexMatcher matcher;
+                string reasonwhyfailed;
+                if (regex.TryCompile(out matcher, out reasonwhyfailed))
+                {
+
+                    //TBD:remove the condition once anchors are supported
+                    if (matcher is SymbolicRegexUInt64 && ((SymbolicRegexUInt64)matcher).Pattern.containsAnchors)
+                        continue;
+                    else
+                    {
+                        for (int m = 0; m < 100; m++)
+                        {
+                            var input = matcher.GenerateRandomMatch();
+                            var matches = matcher.Matches(input);
+                            Assert.IsTrue(matches.Length == 1);
+                            Assert.AreEqual(0, matches[0].Item1);
+                            Assert.AreEqual(input.Length, matches[0].Item2);
+                        }
+                    }
+                }
+                else
+                {
+                    Assert.Fail("Regex compilation failed: " + reasonwhyfailed);
+                }
+            }
+        }
+
+        [TestMethod]
+        public void TestMatcher_SemanticDifference_EarliestVsLeftmost()
+        {
+            var regex = new Regex(@"x+ax+|\(x+[^\)]*\)", RegexOptions.Singleline);
+            RegexMatcher matcher;
+            string reasonwhyfailed;
+            if (regex.TryCompile(out matcher, out reasonwhyfailed))
+            {
+                //earliest eager is not the same as leftmost eager
+                var input = "___(xxaxx this is some more stuff)";
+                //leftmost eager finds the match "(xxaxx this is some more stuff)"
+                var matches_net = regex.Matches(input);
+                Assert.IsTrue(matches_net.Count == 1);
+                Assert.AreEqual(3, matches_net[0].Index);
+                Assert.AreEqual(input.Length - 3, matches_net[0].Length);
+                //earliest eager finds the match "xxaxx"
+                var matches = matcher.Matches(input);
+                Assert.IsTrue(matches.Length == 1);
+                Assert.AreEqual(4, matches[0].Item1);
+                Assert.AreEqual(5, matches[0].Item2);
+                //
+                var input2 = "___(xxxxx this is some more stuff)";
+                var matches_net2 = regex.Matches(input2);
+                var matches2 = matcher.Matches(input2);
+                Assert.IsTrue(matches_net2.Count == 1);
+                Assert.AreEqual(3, matches_net2[0].Index);
+                Assert.AreEqual(input2.Length - 3, matches_net2[0].Length);
+                Assert.IsTrue(matches2.Length == 1);
+                Assert.AreEqual(3, matches2[0].Item1);
+                Assert.AreEqual(input2.Length - 3, matches2[0].Item2);
+            }
+            else
+            {
+                Assert.Fail("Regex compilation failed: " + reasonwhyfailed);
+            }
+        }
+
+        [TestMethod]
+        public void TestMatcher_StartAt_EndAt()
+        {
+            var A = new Regex("pw+d", RegexOptions.IgnoreCase);
+            var B = new Regex(@"<ignore>[^><]*</ignore>");
+            var input = "xxxxxxxxxxxxxaaPwwWDxx<ignore>PWWWWWWWD</ignore> <IGNORE>PWWD</IGNORE> xxpwwwwwwdxxx";
+            var mA = A.Compile();
+            var mB = B.Compile();
+            bool done = false;
+            int start = 0;
+            var matches = new List<Tuple<int, int>>();
+            while (!done)
+            {
+                //find at most one match from start
+                var matches1 = mA.Matches(input, 1, start);
+                if (matches1.Length == 0)
+                {
+                    //there are no more matches of A
+                    done = true;
+                }
+                else
+                {
+                    //extract the match start and end 
+                    var match_start = matches1[0].Item1;
+                    var match_end = matches1[0].Item1 + matches1[0].Item2 - 1;
+                    //decide if this match may be ignored by 
+                    //checking if B applies to the immediate surrounding containg the match
+                    //immediate surrounding here means 10 chars from start and end
+                    var ignore = mB.IsMatch(input, match_start - 10, match_end + 10);
+                    if (!ignore)
+                    {
+                        matches.Add(matches1[0]);
+                    }
+                    //continue from the next position after the found match
+                    start = match_end + 1;
+                }
+            }
+            Assert.IsTrue(matches.Count == 3);
+            var PwwWD = input.Substring(matches[0].Item1, matches[0].Item2);
+            var PWWD = input.Substring(matches[1].Item1, matches[1].Item2);
+            var pwwwwwwd = input.Substring(matches[2].Item1, matches[2].Item2);
+            Assert.AreEqual<string>("PwwWD", PwwWD);
+            Assert.AreEqual<string>("PWWD", PWWD);
+            Assert.AreEqual<string>("pwwwwwwd", pwwwwwwd);
+            //observe that the second match PWWWWWWWD must be ignored
+        }
+
+        [TestMethod]
+        public void TestIntersection()
+        {
+            var r1 = "^([abc][xyz])*#([mn][ij])*#([rst][uvw])*$";
+            var r2 = "^([ax]{1000})*##$";
+            CharSetSolver css = new CharSetSolver();
+            var a1 = css.Convert(r1).Determinize().Minimize();
+            var a2 = css.Convert(r2).Determinize().Minimize();
+            var a = a1.Intersect(a2);
+            //a.ShowGraph();
+        }
+
+        [TestMethod]
+        public void TestLazyMatching()
+        {
+            var r = new Regex(@"sig=.*?[^a-z0-9]");
+            var matcher = r.Compile();
+            var input = "sig=foo;___sig=bar123;__sig=abc;";
+            var matches = matcher.Matches(input);
+            var r_matches = r.Matches(input);
+            Assert.IsTrue(matches.Length == 3);
+            Assert.IsTrue(r_matches.Count == 3);
+            for (int i = 0; i < 3; i++)
+                Assert.IsTrue(r_matches[i].Index == matches[i].Item1 && r_matches[i].Length == matches[i].Item2);
+        }
+
+        [TestMethod]
+        public void TestLazyMatching2()
+        {
+            var r = new Regex(@"[\\/]?[^\\/]*?(foobar|bazz)[^\\/]*?xxx");
+            var matcher = r.Compile();
+            var input = "foobar123xxxxxxyyy\n";
+            var matches = matcher.Matches(input);
+            var r_matches = r.Matches(input);
+            Assert.IsTrue(matches.Length == r_matches.Count);
+            for (int i = 0; i < matches.Length; i++)
+                Assert.IsTrue(r_matches[i].Index == matches[i].Item1 && r_matches[i].Length == matches[i].Item2);
+        }
+
+        System.Runtime.Serialization.Formatters.Soap.SoapFormatter soap =
+            new System.Runtime.Serialization.Formatters.Soap.SoapFormatter();
+
+        [TestMethod]
+        public void TestWatchdogs()
+        {
+            var r = new Regex("(?i:mar{4}gus|mar[gG]us|mar[kK]us|mam+a)");
+            var matcher_ = (SymbolicRegexUInt64)r.Compile();
+            matcher_.Serialize("test.soap", soap);
+            var matcher = (SymbolicRegexUInt64)RegexMatcher.Deserialize("test.soap", soap);
+            var input = "xxxxxxxxmarxxxxxxxmarrrrgusxxxmaRrrrgusxyzmarkusxxx";
+            var matches = matcher.Matches(input);
+            Assert.IsTrue(matches.Length == 3);
+            var regex_matches = r.Matches(input);
+            Assert.IsTrue(regex_matches.Count == 3);
+            for (int i = 0; i < 3; i++)
+                Assert.IsTrue(matches[i].Item1 == regex_matches[i].Index && matches[i].Item2 == regex_matches[i].Length);
+            //matcher.Pattern.ShowGraph(0,"regex_with_Watchdogs");
+            //matcher.DotStarPattern.ShowGraph(0, "dotstar_regex_with_Watchdogs", false, true);
+        }
+
+        [TestMethod]
+        public void TestAnchors()
+        {
+            var r = new Regex(@"^foo|bar$", RegexOptions.Multiline);
+            var input = "foo0\nbar1foo\n234bar\nfooxxbar";
+            var matches = r.Matches(input);
+            var k = matches.Count;
+            Assert.IsTrue(k == 4);
+            var sr = r.Compile();
+            var sr_matches = sr.Matches(input);
+            Assert.IsTrue(sr_matches.Length == 4);
         }
     }
 }

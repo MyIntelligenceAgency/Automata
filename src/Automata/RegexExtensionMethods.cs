@@ -41,39 +41,63 @@ namespace Microsoft.Automata
         /// <param name="regex">this regex</param>
         /// <param name="regexes">more regexes to intersect with</param>
         /// <returns></returns>
-        public static IMatcher Compile(this Regex regex, params Regex[] regexes)
+        public static RegexMatcher Compile(this Regex regex, params Regex[] regexes)
         {
+            if (regex.ToString() == "")
+                throw new AutomataException(AutomataExceptionKind.InvalidRegex);
+            return Compile(regex, true, true, false, regexes);
+        }
+
+        /// <summary>
+        /// Compiles this regex and possibly other regexes into a common symbolic regex representing their intersection
+        /// </summary>
+        /// <param name="regex">this regex</param>
+        /// <param name="regexes">more regexes to intersect with</param>
+        /// <param name="keepAnchors">if false missing anchors are replaced by .* else just omitted</param>
+        /// <param name="unwindLowerBounds">if true then lower bounds of loops are unwound</param>
+        /// <returns></returns>
+        public static RegexMatcher Compile(this Regex regex, bool keepAnchors, bool unwindLowerBounds, bool isMatchOnly = false, params Regex[] regexes)
+        {
+            //first test if this regex is a simple string, i.e., a toplevel multi-node
+            RegexTree rt = RegexParser.Parse(regex.ToString(), regex.Options);
+            //if (regexes.Length == 0)
+            //{
+            //    if (rt._root._type == RegexNode.Capture && rt._root.Child(0)._type == RegexNode.Multi)
+            //    {
+            //        //this is an explicit string
+            //        var pattern = rt._root.Child(0)._str;
+            //        return new FixedStringMatcher(pattern, (regex.Options & RegexOptions.IgnoreCase) == RegexOptions.IgnoreCase);
+            //    }
+            //}
+
             if (context == null)
                 context = new CharSetSolver();
-            if (regexes.Length == 0)
+
+            var first = context.RegexConverter.ConvertToSymbolicRegex(rt._root, keepAnchors, unwindLowerBounds);
+
+            if (!isMatchOnly && first.CheckIfContainsLazyLoop() && !first.CheckIfAllLoopsAreLazy())
+                throw new AutomataException("Match generation with mixed lazy and eager loops currently not supported.");
+
+            var others = Array.ConvertAll(regexes, r => context.RegexConverter.ConvertToSymbolicRegex(r, keepAnchors, unwindLowerBounds));
+            var all = new SymbolicRegexNode<BDD>[1 + regexes.Length];
+            all[0] = first;
+            for (int i = 1; i <= others.Length; i++)
+                all[i] = others[i - 1];
+            var srBuilder = context.RegexConverter.srBuilder;
+            var conj = srBuilder.MkAnd(all);
+            var partition = conj.ComputeMinterms();
+            RegexMatcher matcher;
+            if (partition.Length > 64)
             {
-                var sr_bdd = context.RegexConverter.ConvertToSymbolicRegex(regex, true);
-                var srBuilder = context.RegexConverter.srBuilder;
-                var partition = sr_bdd.ComputeMinterms();
-                BVAlgebra bva = BVAlgebra.Create(context, partition);
-                SymbolicRegexBuilder<BV> builder = new SymbolicRegexBuilder<BV>(bva);
-                var sr_bv = srBuilder.Transform<BV>(sr_bdd, builder, builder.solver.ConvertFromCharSet);
-                sr_bv = sr_bv.Simplify();
-                var matcher = new SymbolicRegex<BV>(builder, sr_bv, context, partition);
-                return matcher;
+                //more than 64 bits needed to represent a set
+                matcher = new SymbolicRegexBV(conj, context, partition);
             }
             else
             {
-                var first = context.RegexConverter.ConvertToSymbolicRegex(regex, true).Simplify();
-                var others = Array.ConvertAll(regexes, r => context.RegexConverter.ConvertToSymbolicRegex(r, true).Simplify());
-                var all = new SymbolicRegexNode<BDD>[1 + regexes.Length];
-                all[0] = first;
-                for (int i = 1; i <= others.Length; i++)
-                    all[i] = others[i - 1];
-                var srBuilder = context.RegexConverter.srBuilder;
-                var conj = srBuilder.MkAnd(all);
-                var partition = conj.ComputeMinterms();
-                BVAlgebra bva = BVAlgebra.Create(context, partition);
-                SymbolicRegexBuilder<BV> builder = new SymbolicRegexBuilder<BV>(bva);
-                var res = context.RegexConverter.srBuilder.Transform<BV>(conj, builder, builder.solver.ConvertFromCharSet);
-                var matcher = new SymbolicRegex<BV>(builder, res, context, partition);
-                return matcher;
+                //enough to use 64 bits
+                matcher = new SymbolicRegexUInt64(conj, context, partition);
             }
+            return matcher;
         }
 
         /// <summary>
@@ -83,7 +107,7 @@ namespace Microsoft.Automata
         /// <param name="result">if the return value is true then this is the result of compilation</param>
         /// <param name="whyfailed">if the return value is false then this is the reason why compilation failed</param>
         /// <param name="regexes">other regexes to be intersected with given regex</param>
-        public static bool TryCompile(this Regex regex,  out IMatcher result, out string whyfailed, params Regex[] regexes)
+        public static bool TryCompile(this Regex regex,  out RegexMatcher result, out string whyfailed, params Regex[] regexes)
         {
             try
             {
@@ -107,10 +131,11 @@ namespace Microsoft.Automata
         /// <returns></returns>
         public static bool IsCompileSupported(this Regex regex, out string whynot)
         {
-            var css = new CharSetSolver();
+            if (context == null)
+                context = new CharSetSolver();
             try
             {
-                var sr_bdd = css.RegexConverter.ConvertToSymbolicRegex(regex, true);
+                var sr_bdd = context.RegexConverter.ConvertToSymbolicRegex(regex, true);
                 whynot = "";
                 return true;
             }
@@ -118,10 +143,6 @@ namespace Microsoft.Automata
             {
                 whynot = e.Message;
                 return false;
-            }
-            finally
-            {
-                css.Dispose();
             }
         }
 

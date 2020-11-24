@@ -17,17 +17,42 @@ namespace Microsoft.Automata
         /// <summary>
         /// Returns true iff the input string matches. 
         /// <param name="input">given iput string</param>
-        /// <param name="startat">start position in the input</param>
+        /// <param name="startat">start position in the input, default is 0</param>
+        /// <param name="endat">end position in the input, -1 means that the value is unspecified and taken to be input.Length-1</param>
         /// </summary>
-        bool IsMatch(string input, int startat = 0);
+        bool IsMatch(string input, int startat = 0, int endat = -1);
 
         /// <summary>
         /// Returns all matches as pairs (startindex, length) in the input string.
         /// </summary>
         /// <param name="input">given iput string</param>
-        /// <param name="startat">start position in the input</param>
-        /// <param name="limit">as soon as this many matches have been found the search terminates, 0 or negative value means that there is now bound, default is 0</param>
-        Tuple<int, int>[] Matches(string input, int limit = 0, int startat = 0);
+        /// <param name="limit">as soon as this many matches have been found the search terminates, 0 or negative value means that there is no bound, default is 0</param>
+        /// <param name="startat">start position in the input, default is 0</param>
+        /// <param name="endat">end position in the input, -1 means that the value is unspecified and taken to be input.Length-1</param>
+        Tuple<int, int>[] Matches(string input, int limit = 0, int startat = 0, int endat = -1);
+
+        /// <summary>
+        /// Generate a random string that is a complete match.
+        /// </summary>
+        string GenerateRandomMatch(int maxLoopUnrol = 10, int cornerCaseProb = 5, int maxSamplingIter = 3);
+
+        /// <summary>
+        /// Serialize this symbolic regex matcher to the given stream.
+        /// If formatter is null then an instance of 
+        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
+        /// </summary>
+        /// <param name="stream">stream where the serialization is stored</param>
+        /// <param name="formatter">given formatter</param>
+        void Serialize(Stream stream, IFormatter formatter = null);
+
+        /// <summary>
+        /// Serialize this symbolic regex matcher to the given file.
+        /// If formatter is null then an instance of 
+        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
+        /// </summary>
+        /// <param name="file">file where the serialization is stored</param>
+        /// <param name="formatter">given formatter</param>
+        void Serialize(string file, IFormatter formatter = null);
     }
 
     /// <summary>

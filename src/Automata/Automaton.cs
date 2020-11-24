@@ -15,8 +15,8 @@ namespace Microsoft.Automata
     /// <typeparam name="T">type of the labels</typeparam>
     public class Automaton<T> : IAutomaton<T>
     {
-        private Dictionary<int, List<Move<T>>> delta;
-        private Dictionary<int, List<Move<T>>> deltaInv;
+        protected Dictionary<int, List<Move<T>>> delta;
+        protected Dictionary<int, List<Move<T>>> deltaInv;
         private int initialState;
         private HashSet<int> finalStateSet;
         private int maxState;
@@ -357,7 +357,22 @@ namespace Microsoft.Automata
             if (css != null)
                 css.ShowGraph(this as Automaton<BDD>, name);
             else
-                DirectedGraphs.DgmlWriter.ShowGraph<T>(-1, this, name);
+            {
+                var pp = algebra as IPrettyPrinter<T>;
+                if (pp != null)
+                    DirectedGraphs.DgmlWriter.ShowGraph<T>(-1, this, name, pp.PrettyPrint);
+                else
+                    DirectedGraphs.DgmlWriter.ShowGraph<T>(-1, this, name);
+            }
+        }
+
+        public void SaveGraph(string name = "Automaton")
+        {
+            var pp = algebra as IPrettyPrinter<T>;
+            if (pp != null)
+                DirectedGraphs.DgmlWriter.SaveGraph<T>(-1, this, name, pp.PrettyPrint);
+            else
+                DirectedGraphs.DgmlWriter.SaveGraph<T>(-1, this, name);
         }
 
         /// <summary>
@@ -477,6 +492,29 @@ namespace Microsoft.Automata
 
         private Automaton() { }
 
+        /// <summary>
+        /// Creates a shallow copy of aut with exactly the same fields
+        /// </summary>
+        protected Automaton(Automaton<T> aut)
+        {
+            this.algebra = aut.algebra;
+            this.initialState = aut.initialState;
+            this.finalStateSet = aut.finalStateSet;
+            this.isEpsilonFree = aut.isEpsilonFree;
+            this.maxState = aut.maxState;
+            this.delta = aut.delta;
+            this.deltaInv = aut.deltaInv;
+            this.isDeterministic = aut.isDeterministic;
+
+            #region fields that are mostly unused and may be uninitialized
+            this.cardinality = aut.cardinality;
+            this.didTopSort =  aut.didTopSort;
+            this.isUnambiguous = aut.isUnambiguous;
+            this.probabilities = aut.probabilities;
+            this.topsort = aut.topsort;
+            this.wordBoundaries = aut.wordBoundaries;
+            #endregion
+        }
 
         /// <summary>
         /// Convert the automaton to an automaton where each guard p has been replaced with transform(p).
@@ -559,7 +597,7 @@ namespace Microsoft.Automata
                     yield return s;
         }
 
-        public IEnumerable<Move<T>> GetMovesFrom(int sourceState)
+        public virtual IEnumerable<Move<T>> GetMovesFrom(int sourceState)
         {
             return delta[sourceState];
         }
@@ -2525,7 +2563,6 @@ namespace Microsoft.Automata
             return det;
         }
 
-
         public Automaton<T> Determinize(int timeout = 0)
         {
             IBooleanAlgebra<T> solver = algebra;
@@ -2534,7 +2571,7 @@ namespace Microsoft.Automata
                 return this;
 
             Automaton<T>[] disjuncts;
-            if (TryDecompose(out disjuncts))  
+            if (TryDecompose(out disjuncts))
             {
                 var disjuncts_det = Array.ConvertAll(disjuncts, d => d.Determinize().Minimize());
                 var disjuncts_comp = Array.ConvertAll(disjuncts_det, d => d.Complement().Minimize());
@@ -2623,6 +2660,108 @@ namespace Microsoft.Automata
             det.isDeterministic = true;
 
             det.EliminateDeadStates();
+            return det;
+        }
+
+        /// <summary>
+        /// Determinize and return the state builder that maps generated states to sets of original states
+        /// </summary>
+        /// <param name="timeout">if 0 then no timeout is enforced else it is the nr of ms</param>
+        /// <param name="statebuilder">maps generated state ids to sets of original state ids</param>
+        /// <returns></returns>
+        public Automaton<T> Determinize(out PowerSetStateBuilder statebuilder, int timeout = 0)
+        {
+            IBooleanAlgebra<T> solver = algebra;
+
+            if (IsDeterministic)
+            {
+                statebuilder = null;
+                return this;
+            }
+
+            long timeout1 = Microsoft.Automata.Utilities.HighTimer.Frequency * ((long)timeout / (long)1000);
+            long timeoutLimit;
+            if (timeout > 0)
+                timeoutLimit = Utilities.HighTimer.Now + timeout1;
+            else
+                timeoutLimit = 0;
+
+            var A = this.RemoveEpsilons();
+
+            //the sink state is represented implicitly, there is no need to make B total
+            List<int> states = new List<int>(A.States);
+            PowerSetStateBuilder dfaStateBuilder = PowerSetStateBuilder.Create(states.ToArray());
+
+
+            var stack = new Stack<int>();
+
+            var startState = dfaStateBuilder.MakePowerSetState(new int[] { A.InitialState });
+            stack.Push(startState);
+
+            var delta = new Dictionary<int, List<Move<T>>>();
+            delta[startState] = new List<Move<T>>();
+            var finalStateList = new HashSet<int>();
+
+            Func<int, bool> IsDFAFinalState = id =>
+            {
+                foreach (int state in dfaStateBuilder.GetMembers(id))
+                    if (A.IsFinalState(state))
+                        return true;
+                return false;
+            };
+
+            if (IsDFAFinalState(startState))
+                finalStateList.Add(startState);
+
+            while (stack.Count > 0)
+            {
+
+                var sourceState = stack.Pop();
+
+                var moves = new List<Move<T>>(A.GetMovesFromStates(dfaStateBuilder.GetMembers(sourceState)));
+                var conds = Array.ConvertAll(moves.ToArray(), move => { return move.Label; });
+
+                int n = moves.Count;
+
+                foreach (var solution in solver.GenerateMinterms(conds))
+                {
+                    CheckTimeout(timeoutLimit);
+                    var nfaTargetStates = new List<int>();
+                    for (int j = 0; j < n; j++)
+                        if (solution.Item1[j])
+                            nfaTargetStates.Add(moves[j].TargetState);
+
+                    //if all conditions are false then this leads to the sink state -1
+                    int targetState;
+                    if (nfaTargetStates.Count > 0)
+                    {
+                        targetState = dfaStateBuilder.MakePowerSetState(nfaTargetStates);
+
+                        T prodCondition = solution.Item2;
+                        var prodMove = Move<T>.Create(sourceState, targetState, prodCondition);
+                        delta[sourceState].Add(prodMove);
+                        if (!delta.ContainsKey(targetState))
+                        {
+                            delta[targetState] = new List<Move<T>>();
+                            if (IsDFAFinalState(targetState))
+                                finalStateList.Add(targetState);
+                            stack.Push(targetState);
+                        }
+                    }
+                }
+            }
+            if (finalStateList.Count == 0)
+            {
+                statebuilder = null;
+                return Automaton<T>.MkEmpty(solver);
+            }
+
+            Automaton<T> det = Automaton<T>.Create(solver, startState, finalStateList, EnumerateMoves(delta));
+            det.isEpsilonFree = true;
+            det.isDeterministic = true;
+
+            det.EliminateDeadStates();
+            statebuilder = dfaStateBuilder;
             return det;
         }
 
@@ -3336,7 +3475,7 @@ namespace Microsoft.Automata
             //Console.WriteLine("NEW Explored blocks: " + totalExploredBlocks);
             //Console.WriteLine("NEW PRE: " + totalPre);
 
-            Func<int, int> GetRepresentative = (q => Blocks[q].GetRepresentative());
+            Func<int, int> GetRepresentative = (q => Blocks[q].Elem());
             return autom.JoinStates(GetRepresentative, solver.MkOr);
         }
 
@@ -3727,7 +3866,7 @@ namespace Microsoft.Automata
 
             //Console.WriteLine("N log N Explored blocks: "+totalExploredBlocks);
             //Console.WriteLine("N log N PRES: " + totalPreCount);
-            Func<int, int> GetRepresentative = (q => Blocks[q].GetRepresentative());
+            Func<int, int> GetRepresentative = (q => Blocks[q].Elem());
             return autom.JoinStates(GetRepresentative, solver.MkOr);
         }
 
@@ -3972,7 +4111,7 @@ namespace Microsoft.Automata
             //Console.WriteLine("OLD Explored blocks: " + totalExploredBlocks);
             //Console.WriteLine("OLD PRES: " + totalPre);
 
-            Func<int, int> GetRepresentative = (q => Blocks[q].GetRepresentative());
+            Func<int, int> GetRepresentative = (q => Blocks[q].Elem());
             return autom.JoinStates(GetRepresentative, solver.MkOr);
         }
 
@@ -4153,7 +4292,7 @@ namespace Microsoft.Automata
             foreach (SimBlock sb in Partition)
                 foreach (int q in sb)
                     finalPartition[q] = sb;
-            Func<int, int> GetRepresentative = (q => finalPartition[q].GetRepresentative());
+            Func<int, int> GetRepresentative = (q => finalPartition[q].Elem());
             return automIn.JoinStates(GetRepresentative, solver.MkOr);
         }
 
@@ -4991,11 +5130,96 @@ namespace Microsoft.Automata
                     yield return m.TargetState;
         }
 
+        /// <summary>
+        /// Assumes that the automaton has some target state for 
+        /// some element in the given predicate and returns such a target state.
+        /// </summary>
+        int GetTargetState_(int source, T pred)
+        {
+            var moves = delta[source];
+            int target = 0;
+            int i = 0;
+            while (i < moves.Count)
+            {
+                var move = moves[i];
+                if (!move.IsEpsilon && algebra.IsSatisfiable(algebra.MkAnd(pred, move.Label)))
+                {
+                    target = move.TargetState;
+                    break;
+                }
+                i += 1;
+            }
+            if (i == moves.Count)
+                throw new AutomataException(AutomataExceptionKind.AutomatonMissingTransition);
+            return target;
+        }
+
+        /// <summary>
+        /// Returns true if the automaton has some target state for 
+        /// some element in the given predicate then such a target state is output. 
+        /// Else returns false and sets target to -1.
+        /// </summary>
+        bool TryGetTargetState_(int source, out int target, T pred)
+        {
+            var moves = delta[source];
+            int i = 0;
+            while (i < moves.Count)
+            {
+                var move = moves[i];
+                if (!move.IsEpsilon && algebra.IsSatisfiable(algebra.MkAnd(pred, move.Label)))
+                {
+                    target = move.TargetState;
+                    return true;
+                }
+                i += 1;
+            }
+            target = -1;
+            return false;
+        }
+
+        /// <summary>
+        /// Assumes that the automaton is total and deterministic and all input predicates are satisfiable. 
+        /// Returns the target state after the given sequence of inputs.
+        /// </summary>
+        public int GetTargetState(int source, params T[] pred)
+        {
+            int p = source;
+            for (int i = 0; i < pred.Length; i++)
+                p = GetTargetState_(p, pred[i]);
+            return p;
+        }
+
+
+        /// <summary>
+        /// Returns true if the automaton has some target state for 
+        /// some elements in the given predicate sequence, then such a target is output. 
+        /// Else returns false and sets target to -1.
+        /// </summary>
+        public bool TryGetTargetState(int source, out int target, params T[] pred)
+        {
+            int p = source;
+            for (int i = 0; i < pred.Length; i++)
+            {
+                int t;
+                if (TryGetTargetState_(p, out t, pred[i]))
+                {
+                    p = t;
+                }
+                else
+                {
+                    target = -1;
+                    return false;
+                }
+            }
+            target = p;
+            return true;
+        }
+
 
         /// <summary>
         /// Enumerates all moves of the automaton.
         /// </summary>
-        public IEnumerable<Move<T>> GetMoves()
+        public virtual IEnumerable<Move<T>> GetMoves()
         {
             foreach (int state in States)
                 foreach (Move<T> move in delta[state])
@@ -5013,7 +5237,7 @@ namespace Microsoft.Automata
         /// <summary>
         /// Returns lab.ToString(), or the empty string when S is not a value type and lab is null. 
         /// </summary>
-        public string DescribeLabel(T lab)
+        public virtual string DescribeLabel(T lab)
         {
             if (typeof(T).IsValueType)
                 return lab.ToString();
@@ -5028,7 +5252,7 @@ namespace Microsoft.Automata
         #region IAutomaton<S> Members
 
 
-        public string DescribeStartLabel()
+        public virtual string DescribeStartLabel()
         {
             return "";
         }
@@ -5430,17 +5654,32 @@ namespace Microsoft.Automata
             this.Automaton = automaton;
         }
 
-        public bool IsMatch(string input, int start = 0)
+        public bool IsMatch(string input, int start = 0, int end = -1)
         {
-            return Automaton.IsMatch(input.Substring(0));
+            return Automaton.IsMatch(input.Substring(start));
         }
 
-        public Tuple<int, int>[] Matches(string input, int start=0, int limit = 0)
+        public Tuple<int, int>[] Matches(string input, int start=0, int limit = 0, int end = -1)
         {
             throw new NotImplementedException();
         }
 
         public void GetObjectData(SerializationInfo info, StreamingContext context)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string GenerateRandomMatch(int maxLoopUnrol = 10, int cornerCaseProb = 5, int maxSamplingIter = 3)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Serialize(Stream stream, IFormatter formatter = null)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Serialize(string file, IFormatter formatter = null)
         {
             throw new NotImplementedException();
         }
@@ -5452,7 +5691,7 @@ namespace Microsoft.Automata
         bool reprChosen = false;
         internal HashSet<int> set;
 
-        public int GetRepresentative()
+        public int Elem()
         {
             if (reprChosen)
                 return representative;

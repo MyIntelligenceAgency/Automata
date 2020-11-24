@@ -25,7 +25,7 @@ namespace Microsoft.Automata.Grammars
             }
         }
 
-        public bool IsSingleExprinal
+        public bool IsSingleTerminal
         {
             get
             {
@@ -46,7 +46,18 @@ namespace Microsoft.Automata.Grammars
         }
 
         /// <summary>
-        /// Returns the symbols in the Rhs except the first.
+        /// Returns true if the first symbol is a terminal
+        /// </summary>
+        public bool FirstIsTerminal
+        {
+            get
+            {
+                return Rhs.Length > 0 && !(Rhs[0] is Nonterminal);
+            }
+        }
+
+        /// <summary>
+        /// Returns the symbols in the Rhs except the first one.
         /// Assumes that Rhs is nonempty.
         /// </summary>
         public GrammarSymbol[] Rest
@@ -59,7 +70,7 @@ namespace Microsoft.Automata.Grammars
             }
         }
 
-        public bool ContainsNoExprinals
+        public bool ContainsOnlyNonterminals
         {
             get
             {
@@ -70,7 +81,7 @@ namespace Microsoft.Automata.Grammars
             }
         }
 
-        public bool ContainsNoVariables
+        public bool ContainsOnlyTerminals
         {
             get
             {
@@ -81,7 +92,7 @@ namespace Microsoft.Automata.Grammars
             }
         }
 
-        public IEnumerable<Nonterminal> GetVariables()
+        public IEnumerable<Nonterminal> GetNonterminals()
         {
             foreach (GrammarSymbol s in Rhs)
                 if (s is Nonterminal)
@@ -102,30 +113,23 @@ namespace Microsoft.Automata.Grammars
 
         public Production(Nonterminal lhs, params GrammarSymbol[] rhs)
         {
+            if (lhs == null || Array.Exists(rhs, x => x == null))
+                throw new ArgumentNullException();
+
             this.Lhs = lhs;
             this.Rhs = rhs;
         }
 
         public Production(Nonterminal lhs, GrammarSymbol[] rhsButLast, GrammarSymbol last)
         {
+            if (lhs == null || last == null || Array.Exists(rhsButLast, x => x == null))
+                throw new ArgumentNullException();
+
             this.Lhs = lhs;
             this.Rhs = new GrammarSymbol[rhsButLast.Length + 1];
             Array.Copy(rhsButLast, this.Rhs, rhsButLast.Length);
             this.Rhs[rhsButLast.Length] = last;
         }
-
-        //Symbol Last
-        //{
-        //    get
-        //    {
-        //        return Rhs[Rhs.Length-1];
-        //    }
-        //}
-
-        //public static List<Production> MkList(params Production[] prods)
-        //{
-        //    return new List<Production>(prods);
-        //}
 
         public override string ToString()
         {
@@ -148,7 +152,15 @@ namespace Microsoft.Automata.Grammars
                 StringBuilder sb = new StringBuilder();
                 foreach (GrammarSymbol s in Rhs)
                 {
-                    sb.Append(s.Name);
+                    if (s is Nonterminal || s.Name.StartsWith("("))
+                        sb.Append(s.Name);
+                    else
+                    {
+
+                        sb.Append("(");
+                        sb.Append(s.Name);
+                        sb.Append(")");
+                    }
                     sb.Append(" ");
                 }
                 return sb.ToString();
@@ -168,11 +180,15 @@ namespace Microsoft.Automata.Grammars
         {
             get
             {
-                return ((Rhs.Length > 0 && !(Rhs[0] is Nonterminal)));
+                if (First is Nonterminal)
+                    return false;
+                if (!Array.TrueForAll(Rest, e => e is Nonterminal))
+                    return false;
+                return true;
             }
         }
 
-        public IEnumerable<GrammarSymbol> GetExprinals()
+        public IEnumerable<GrammarSymbol> GetTerminals()
         {
             foreach (GrammarSymbol s in Rhs)
                 if (!(s is Nonterminal))

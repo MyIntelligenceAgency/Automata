@@ -71,8 +71,7 @@ namespace Microsoft.Automata
             switch (re.Kind)
             {
                 case SymbolicRegexKind.Concat:
-                    newRoot = builder.MkConcat(UnrollRE(re.Left),
-                        UnrollRE(re.Right));
+                    newRoot = builder.MkConcat(UnrollRE(re.Left), UnrollRE(re.Right));
                     break;
                 case SymbolicRegexKind.IfThenElse:
                     newRoot = builder.MkIfThenElse(re.IteCond,
@@ -165,6 +164,7 @@ namespace Microsoft.Automata
                         break;
                     case SymbolicRegexKind.EndAnchor:
                     case SymbolicRegexKind.StartAnchor:
+                    case SymbolicRegexKind.WatchDog:
                         curNode = null;
                         break;
                     default:

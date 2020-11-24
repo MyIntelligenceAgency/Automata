@@ -87,9 +87,13 @@
     <Compile Include="AutomataCompilationTests.cs" />
     <Compile Include="BREXTests.cs" />
     <Compile Include="BVAlgebraTests.cs" />
+    <Compile Include="ContextFreeGrammarTests.cs" />
     <Compile Include="CharSetSolverTests.cs" />
     <Compile Include="CharSetTests.cs" />
     <Compile Include="CodeGenTests.cs" />
+    <Compile Include="ConditionalDerivativeTests.cs" />
+    <Compile Include="CountingAutomatonTests.cs" />
+    <Compile Include="CountingSetTests.cs" />
     <Compile Include="DecisionTreeTests.cs" />
     <Compile Include="DeterminizationTests.cs" />
     <Compile Include="EditDistanceTest.cs" />
@@ -105,11 +109,14 @@
     <Compile Include="RexTests.cs" />
     <Compile Include="SampleRegexes.cs" />
     <Compile Include="SCCTest.cs" />
+    <Compile Include="SequenceTests.cs" />
     <Compile Include="SerializationTests.cs" />
     <Compile Include="SpecialRegexTests.cs" />
+    <Compile Include="StateDistinguisherTests.cs" />
     <Compile Include="SymbolicRegexTests.cs" />
     <Compile Include="ThreeAutomataTest.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="CsAlgebraTests.cs" />
     <Compile Include="UTF8EncodingTests.cs" />
     <Compile Include="UtilitiesTests.cs" />
   </ItemGroup>

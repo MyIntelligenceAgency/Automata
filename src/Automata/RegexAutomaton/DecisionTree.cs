@@ -9,8 +9,9 @@ namespace Microsoft.Automata
     /// Decision tree for mapping character ranges into corresponding partition block ids
     /// </summary>
     [Serializable]
-    internal class DecisionTree : ISerializable
+    public class DecisionTree : ISerializable
     {
+        [NonSerialized]
         internal int[] precomputed;
         [NonSerialized]
         internal BST bst;
@@ -39,8 +40,8 @@ namespace Microsoft.Automata
         internal static DecisionTree Create(CharSetSolver solver, BDD[] partition, ushort precomputeLimit = 0xFF)
         {
             if (partition.Length == 1)
-                //there is no partition, everything maps to one symbol e.g. in .*
-                return new DecisionTree(new int[] { }, new BST(0, null, null));
+                //there is no actual partition, everything maps to one id 0, e.g. as in .*
+                return new DecisionTree(new int[(int)precomputeLimit], new BST(0, null, null));
 
             if (precomputeLimit == 0)
                 return new DecisionTree(new int[] { }, MkBST(new PartitionCut(solver, partition), 0, 0xFFFF));
@@ -123,7 +124,7 @@ namespace Microsoft.Automata
         /// <summary>
         /// Used in the decision tree to locate minterm ids of nonascii characters
         /// </summary>
-        internal class BST
+        public class BST
         {
             //[NonSerialized]
             int node;
@@ -242,21 +243,6 @@ namespace Microsoft.Automata
                         }
                 }
             }
-
-            //public void GetObjectData(SerializationInfo info, StreamingContext context)
-            //{
-            //    info.AddValue("bst", this.Serialize());
-            //}
-            /// <summary>
-            /// Deserialize
-            /// </summary>
-            //public BST(SerializationInfo info, StreamingContext context)
-            //{
-            //    var bst = BST.Deserialize(info.GetString("bst"));
-            //    this.node = bst.node;
-            //    this.left = bst.left;
-            //    this.right = bst.right;
-            //}
             #endregion
         }
 
@@ -320,7 +306,7 @@ namespace Microsoft.Automata
         /// </summary>
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            info.AddValue("p", precomputed);
+            info.AddValue("p", SerializePrecomputed());
             info.AddValue("b", bst.Serialize());
         }
         /// <summary>
@@ -328,8 +314,26 @@ namespace Microsoft.Automata
         /// </summary>
         public DecisionTree(SerializationInfo info, StreamingContext context)
         {
-            precomputed = (int[])info.GetValue("p", typeof(int[]));
+            precomputed = DeserializePrecomputed(info.GetString("p"));
             bst = BST.Deserialize(info.GetString("b"));
+        }
+
+        string SerializePrecomputed()
+        {
+            string s = "";
+            for (int i=0; i < precomputed.Length; i++)
+            {
+                if (i > 0)
+                    s += ",";
+                s += precomputed[i].ToString();
+            }
+            return s;
+        }
+
+        static int[] DeserializePrecomputed(string s)
+        {
+            var vals = Array.ConvertAll(s.Split(','), x => int.Parse(x));
+            return vals;
         }
         #endregion
 
@@ -345,6 +349,7 @@ namespace Microsoft.Automata
     [Serializable]
     internal class BooleanDecisionTree : ISerializable
     {
+        [NonSerialized]
         internal bool[] precomputed;
         [NonSerialized]
         internal DecisionTree.BST bst;
@@ -364,7 +369,7 @@ namespace Microsoft.Automata
         }
 
         /// <summary>
-        /// Crteate a decision tree that maps a character into a partion block id.
+        /// Crteate a Boolean decision tree.
         /// References to solver and domain are not saved in the resulting decision tree.
         /// </summary>
         /// <param name="solver">character alberbra</param>
@@ -374,9 +379,11 @@ namespace Microsoft.Automata
         internal static BooleanDecisionTree Create(CharSetSolver solver, BDD domain, ushort precomputeLimit = 0xFF)
         {
             BDD domain_compl = solver.MkNot(domain);
-            var partition = (domain_compl.IsEmpty ? new BDD[] { domain } : new BDD[] { domain_compl, domain });
+            var partition = new BDD[] { domain_compl, domain };
             if (precomputeLimit == 0)
+            {
                 return new BooleanDecisionTree(new bool[] { }, MkBST(new DecisionTree.PartitionCut(solver, partition), 0, 0xFFFF));
+            }
 
             bool[] precomp = Precompute(solver, domain, precomputeLimit);
             DecisionTree.BST bst = null;
@@ -445,7 +452,7 @@ namespace Microsoft.Automata
         /// </summary>
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            info.AddValue("p", precomputed);
+            info.AddValue("p", SerializePrecomputed());
             info.AddValue("b", bst.Serialize());
         }
         /// <summary>
@@ -453,8 +460,21 @@ namespace Microsoft.Automata
         /// </summary>
         public BooleanDecisionTree(SerializationInfo info, StreamingContext context)
         {
-            precomputed = (bool[])info.GetValue("p", typeof(bool[]));
+            precomputed = DeserializePrecomputed(info.GetString("p"));
             this.bst = DecisionTree.BST.Deserialize(info.GetString("b"));
+        }
+
+        string SerializePrecomputed()
+        {
+            char[] chars = Array.ConvertAll(precomputed, b => (b ? '1' : '0'));
+            var s = new String(chars);
+            return s;
+        }
+
+        static bool[] DeserializePrecomputed(string s)
+        {
+            var vals = Array.ConvertAll(s.ToCharArray(), c => (c == '1' ? true : false));
+            return vals;
         }
         #endregion
 

@@ -17,10 +17,13 @@ namespace Automata.Tests
             Assert.IsFalse("æ".EndsWith("ae", false, CultureInfo.CreateSpecificCulture("se")));
             Assert.IsTrue("æ".EndsWith("ae", false, CultureInfo.InvariantCulture));
 
+            var ci = Thread.CurrentThread.CurrentCulture;
             Thread.CurrentThread.CurrentCulture = CultureInfo.CreateSpecificCulture("se");
             Assert.IsFalse("æ".EndsWith("ae"));
-            Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
+            Assert.AreEqual<int>(-1, "æ".IndexOf("ae"));
+            Thread.CurrentThread.CurrentCulture = ci;
             Assert.IsTrue("æ".EndsWith("ae"));
+            Assert.AreEqual<int>(0, "æ".IndexOf("ae"));
 
             Thread.CurrentThread.CurrentCulture = CultureInfo.CreateSpecificCulture("tr");
             string indigo_tr = "indigo".ToUpper();
@@ -51,6 +54,8 @@ namespace Automata.Tests
             Assert.IsTrue(A.ToLower().StartsWith(ae));
             Assert.IsTrue(a.ToUpper().StartsWith(AE));
             Assert.IsFalse(a.ToUpper().StartsWith(AE, StringComparison.Ordinal));
+
+            Thread.CurrentThread.CurrentCulture = ci;
         }
     }
 }

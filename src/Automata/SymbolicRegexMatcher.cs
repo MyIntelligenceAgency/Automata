@@ -10,11 +10,294 @@ using System.IO;
 namespace Microsoft.Automata
 {
     /// <summary>
+    /// Wraps an instance of SymbolicRegex&lt;BV&gt;, the number of needed partition blocks is &gt; 64
+    /// </summary>
+    [Serializable]
+    public class SymbolicRegexBV : SymbolicRegex<BV>
+    {
+        private SymbolicRegexBV(SymbolicRegexBuilder<BV> builder, SymbolicRegexNode<BDD> sr,
+                                CharSetSolver solver, BDD[] minterms, int StateLimit, int startSetSizeLimit)
+            : base(solver.RegexConverter.srBuilder.Transform(sr, builder, builder.solver.ConvertFromCharSet),
+                  solver, minterms, StateLimit, startSetSizeLimit)
+        {
+        }
+
+        /// <summary>
+        /// Is called with minterms.Length at least 65
+        /// </summary
+        internal SymbolicRegexBV(SymbolicRegexNode<BDD> sr,
+                                 CharSetSolver solver, BDD[] minterms, int StateLimit = 1000, int startSetSizeLimit = 1)
+            : this(new SymbolicRegexBuilder<BV>(BVAlgebra.Create(solver, minterms)), sr,
+                  solver, minterms, StateLimit, startSetSizeLimit)
+        {
+        }
+
+        /// <summary>
+        /// Invoked by deserializer
+        /// </summary>
+        public SymbolicRegexBV(SerializationInfo info, StreamingContext context) : base(info, context)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Wraps an instance of SymbolicRegex&lt;ulong&gt;, the number of needed partition blocks is &lt; 65
+    /// </summary>
+    [Serializable]
+    public class SymbolicRegexUInt64 : SymbolicRegex<ulong>
+    {
+        private SymbolicRegexUInt64(SymbolicRegexBuilder<ulong> builder, SymbolicRegexNode<BDD> sr,
+                                CharSetSolver solver, BDD[] minterms, int StateLimit, int startSetSizeLimit)
+            : base(solver.RegexConverter.srBuilder.Transform(sr, builder, builder.solver.ConvertFromCharSet),
+                  solver, minterms, StateLimit, startSetSizeLimit)
+        {
+        }
+
+        /// <summary>
+        /// Is called with minterms.Length at most 64
+        /// </summary>
+        internal SymbolicRegexUInt64(SymbolicRegexNode<BDD> sr,
+                                 CharSetSolver solver, BDD[] minterms, int StateLimit = 1000, int startSetSizeLimit = 1)
+            : this(new SymbolicRegexBuilder<ulong>(BV64Algebra.Create(solver, minterms)), sr,
+                  solver, minterms, StateLimit, startSetSizeLimit)
+        {
+        }
+
+        /// <summary>
+        /// Invoked by deserializer
+        /// </summary>
+        public SymbolicRegexUInt64(SerializationInfo info, StreamingContext context) : base(info, context)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Base class for regex matchers
+    /// </summary>
+    public abstract class RegexMatcher : IMatcher
+    {
+        /// <summary>
+        /// Generate a random string that is a complete match.
+        /// </summary>
+        public abstract string GenerateRandomMatch(int maxLoopUnrol = 10, int cornerCaseProb = 5, int maxSamplingIter = 3);
+
+        /// <summary>
+        /// Extends System.Runtime.Serialization.ISerializable
+        /// </summary>
+        public abstract void GetObjectData(SerializationInfo info, StreamingContext context);
+
+        /// <summary>
+        /// Returns true iff the input string matches. 
+        /// <param name="input">given iput string</param>
+        /// <param name="startat">start position in the input</param>
+        /// <param name="endat">end position in the input, -1 means that the value is unspecified and taken to be input.Length-1</param>
+        /// </summary>
+        public abstract bool IsMatch(string input, int startat = 0, int endat = -1);
+
+        /// <summary>
+        /// Returns all matches as pairs (startindex, length) in the input string.
+        /// </summary>
+        /// <param name="input">given iput string</param>
+        /// <param name="limit">as soon as this many matches have been found the search terminates, 0 or negative value means that there is no bound, default is 0</param>
+        /// <param name="startat">start position in the input, default is 0</param>
+        /// <param name="endat">end position in the input, -1 means that the value is unspecified and taken to be input.Length-1</param>
+        public abstract Tuple<int, int>[] Matches(string input, int limit = 0, int startat = 0, int endat = -1);
+
+        /// <summary>
+        /// Serialize this symbolic regex matcher to the given stream.
+        /// If formatter is null then an instance of 
+        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
+        /// </summary>
+        /// <param name="stream">stream where the serialization is stored</param>
+        /// <param name="formatter">given formatter</param>
+        public abstract void Serialize(Stream stream, IFormatter formatter = null);
+
+        internal abstract void SerializeSimplified(Stream stream, IFormatter formatter = null);
+
+        /// <summary>
+        /// Serialize this symbolic regex matcher to the given file.
+        /// If formatter is null then an instance of 
+        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
+        /// </summary>
+        /// <param name="file">file where the serialization is stored</param>
+        /// <param name="formatter">given formatter</param>
+        public abstract void Serialize(string file, IFormatter formatter = null);
+
+        /// <summary>
+        /// Deserialize the matcher of a symblic regex from the given file using the given formatter. 
+        /// If formatter is null then an instance of 
+        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
+        /// </summary>
+        /// <param name="file">source file of the serialized matcher</param>
+        /// <param name="formatter">given formatter</param>
+        /// <returns></returns>
+        public static RegexMatcher Deserialize(string file, IFormatter formatter = null)
+        {
+            Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+            RegexMatcher matcher = Deserialize(stream, formatter);
+            stream.Close();
+            return matcher;
+        }
+
+        /// <summary>
+        /// Deserialize the matcher of a symblic regex from the given stream using the given formatter. 
+        /// If formatter is null then an instance of 
+        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
+        /// </summary>
+        /// <param name="stream">source stream of the serialized matcher</param>
+        /// <param name="formatter">given formatter</param>
+        /// <returns></returns>
+        public static RegexMatcher Deserialize(Stream stream, IFormatter formatter = null)
+        {
+            if (formatter == null)
+                formatter = new BinaryFormatter();
+            RegexMatcher matcher = (RegexMatcher)formatter.Deserialize(stream);
+            return matcher;
+        }
+    }
+
+    /// <summary>
+    /// Represents a precompiled match generator for a fixed Unicode string
+    /// </summary>
+    [Serializable]
+    public class FixedStringMatcher : RegexMatcher
+    {
+        [NonSerialized]
+        string pattern;
+        [NonSerialized]
+        bool caseInsensitive = false;
+        public override string GenerateRandomMatch(int maxLoopUnrol = 10, int cornerCaseProb = 5, int maxSamplingIter = 3)
+        {
+            if (caseInsensitive)
+            {
+                //replace characters by upperv or lower
+                var chars = pattern.ToCharArray();
+                var chooser = new Chooser();
+                for (int i=0; i < chars.Length; i++)
+                {
+                    if (char.IsLetter(chars[i]))
+                    {
+                        var flip = chooser.ChooseTrueOrFalse();
+                        if (flip)
+                        {
+                            if (char.IsUpper(chars[i]))
+                                chars[i] = char.ToLower(chars[i]);
+                            else
+                                chars[i] = char.ToUpper(chars[i]);
+                        }
+                    }
+                }
+                return new string(chars);
+            }
+            else
+            {
+                return pattern;
+            }
+        }
+
+        public FixedStringMatcher(string pattern, bool caseInsensitive = false)
+        {
+            this.caseInsensitive = caseInsensitive;
+            this.pattern = pattern;
+        }
+
+
+        #region serialization
+        public override void GetObjectData(SerializationInfo info, StreamingContext context)
+        {
+            info.AddValue("caseInsensitive", caseInsensitive);
+            info.AddValue("pattern", StringUtility.SerializeStringToCharCodeSequence(pattern));
+        }
+
+        public FixedStringMatcher(SerializationInfo info, StreamingContext context)
+        {
+            this.caseInsensitive = info.GetBoolean("caseInsensitive");
+            var charCodeSequence = info.GetString("pattern");
+            this.pattern = StringUtility.DeserializeStringFromCharCodeSequence(charCodeSequence);
+        }
+
+        public override bool IsMatch(string input, int startat = 0, int endat = -1)
+        {
+            StringComparison comp = (caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            int res = input.IndexOf(pattern, startat, comp);
+            if (res >= 0 && (endat == -1 || res + pattern.Length - 1 <= endat))
+            {
+                return true;
+            }
+            else
+                return false;
+        }
+
+        public override Tuple<int, int>[] Matches(string input, int limit = 0, int startat = 0, int endat = -1)
+        {
+            var matches = new List<Tuple<int, int>>();
+            StringComparison comp = (caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            int k = (endat == -1 ? (input.Length - 1) : (endat < input.Length ? endat : input.Length - 1));
+            int i = startat;
+            while (true)
+            {
+                int res = input.IndexOf(pattern, i, comp);
+                if (res >= 0 && (limit <= 0 || matches.Count < limit) && res + pattern.Length - 1 <= k)
+                {
+                    matches.Add(new Tuple<int, int>(res, pattern.Length));
+                    i = res + pattern.Length;
+                }
+                else
+                    break;
+            }
+            return matches.ToArray();
+        }
+
+        public unsafe Tuple<int, int>[] Matches_(string input, int limit = 0, int startat = 0, int endat = -1)
+        {
+            if (caseInsensitive)
+                return Matches(input, limit, startat, endat);
+            var matches = new List<Tuple<int, int>>();
+            int k = (endat == -1 ? (input.Length - 1) : (endat < input.Length ? endat : input.Length - 1));
+            int length = input.Length;
+            int i = startat;
+            fixed (char *inputp = input)
+            while (true)
+            {
+                int res = VectorizedIndexOf.UnsafeIndexOf(inputp, length, i, pattern);
+                if (res >= 0 && (limit <= 0 || matches.Count < limit) && res + pattern.Length - 1 <= k)
+                {
+                    matches.Add(new Tuple<int, int>(res, pattern.Length));
+                    i = res + pattern.Length;
+                }
+                else
+                    break;
+            }
+            return matches.ToArray();
+        }
+
+        public override void Serialize(string file, IFormatter formatter = null)
+        {
+            var stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
+            Serialize(stream, formatter);
+            stream.Close();
+        }
+
+        public override void Serialize(Stream stream, IFormatter formatter = null)
+        {
+            if (formatter == null)
+                formatter = new BinaryFormatter();
+            formatter.Serialize(stream, this);
+        }
+
+        internal override void SerializeSimplified(Stream stream, IFormatter formatter = null)
+        {
+            Serialize(stream, formatter);
+        }
+        #endregion
+    }
+
+    /// <summary>
     /// Represents a precompiled form of a regex that implements match generation using symbolic derivatives.
     /// </summary>
     /// <typeparam name="S">character set type</typeparam>
     [Serializable]
-    public class SymbolicRegex<S> : IMatcher
+    public class SymbolicRegex<S> : RegexMatcher
     {
         [NonSerialized]
         internal SymbolicRegexBuilder<S> builder;
@@ -69,6 +352,12 @@ namespace Microsoft.Automata
         Vector<ushort>[] A_StartSet_Vec = null;
 
         /// <summary>
+        /// If A_StartSet_Vec is length 1 then contains the corresponding character
+        /// </summary>
+        [NonSerialized]
+        ushort A_StartSet_singleton;
+
+        /// <summary>
         /// First byte of A_prefixUTF8 in vector
         /// </summary>
         [NonSerialized]
@@ -79,6 +368,10 @@ namespace Microsoft.Automata
         /// </summary>
         [NonSerialized]
         internal SymbolicRegexNode<S> A;
+        [NonSerialized]
+        bool A_allLoopsAreLazy = false;
+        [NonSerialized]
+        bool A_containsLazyLoop = false;
 
         /// <summary>
         /// Main pattern of the matcher
@@ -116,7 +409,13 @@ namespace Microsoft.Automata
         /// <summary>
         /// Set of elements that matter as first element of A. 
         /// </summary>
-        BooleanDecisionTree A_StartSet;
+        internal BooleanDecisionTree A_StartSet;
+
+        /// <summary>
+        /// A vectorized decision stree evaluator generated and compiled from  A_StartSet. 
+        /// </summary>
+        [NonSerialized]
+        internal Func<Vector<ushort>, Vector<ushort>> A_StartSet_compiled;
 
         /// <summary>
         /// predicate over characters that make some progress
@@ -254,27 +553,93 @@ namespace Microsoft.Automata
         int[] delta;
 
         #region custom serialization
+
+        [NonSerialized]
+        internal bool serializeInSimplifiedForm = false;
         /// <summary>
         /// This serialization method is invoked by BinaryFormatter.Serialize via Serialize method.
         /// </summary>
-        public void GetObjectData(SerializationInfo info, StreamingContext context)
+        override public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            info.AddValue("solver", this.builder.solver);
+            if (serializeInSimplifiedForm)
+            {
+                #region special case for replacing all character classes with a single character
+                BV64Algebra bvalg = this.builder.solver as BV64Algebra;
+                if (bvalg == null)
+                    throw new NotSupportedException("Simplified serialization is only supported for BV64Algebra");
+                var simpl_bvalg = bvalg.ReplaceMintermsWithVisibleCharacters();
 
-            info.AddValue("A", A.Serialize());
+                info.AddValue("solver", simpl_bvalg);
+                info.AddValue("A", A.Serialize());
 
-            info.AddValue("StateLimit", StateLimit);
-            info.AddValue("StartSetSizeLimit", StartSetSizeLimit);
+                info.AddValue("StateLimit", StateLimit);
+                info.AddValue("StartSetSizeLimit", StartSetSizeLimit);
 
-            info.AddValue("A_StartSet", A_StartSet);
-            info.AddValue("A_startset", A_startset);
-            info.AddValue("A_StartSet_Size", A_StartSet_Size);
+                ulong A_startset_ulong = (ulong)(object)A_startset;
 
-            info.AddValue("A_prefix", A_prefix);
-            info.AddValue("A_prefix_array", A_prefix_array);
+                var simpl_precomputed = Array.ConvertAll(simpl_bvalg.dtree.precomputed, atomId => simpl_bvalg.IsSatisfiable(simpl_bvalg.MkAnd(simpl_bvalg.atoms[atomId], A_startset_ulong)));
+                BooleanDecisionTree simpl_A_StartSet;
+                if (simpl_bvalg.IsSatisfiable(simpl_bvalg.MkAnd(simpl_bvalg.atoms[0], A_startset_ulong)))
+                    simpl_A_StartSet = new BooleanDecisionTree(simpl_precomputed, new DecisionTree.BST(1, null, null));
+                else
+                    simpl_A_StartSet = new BooleanDecisionTree(simpl_precomputed, new DecisionTree.BST(0, null, null));
+                var simpl_A_StartSet_Size = simpl_bvalg.ComputeDomainSize(A_startset_ulong);
 
-            info.AddValue("Ar_prefix_array", Ar_prefix_array);
-            info.AddValue("Ar_prefix", Ar_prefix);
+                info.AddValue("A_StartSet", simpl_A_StartSet);
+                info.AddValue("A_startset", A_startset_ulong);
+                info.AddValue("A_StartSet_Size", simpl_A_StartSet_Size);
+
+                var simpl_A_prefix = "";
+
+                for (int i = 0; i < A_prefix_array.Length; i++)
+                {
+                    ulong set = (ulong)(object)A_prefix_array[i];
+                    ulong size = simpl_bvalg.ComputeDomainSize(set);
+                    if (size > 1)
+                        break;
+                    else
+                        simpl_A_prefix += simpl_bvalg.PrettyPrint(set);
+                }
+
+                info.AddValue("A_prefix", StringUtility.SerializeStringToCharCodeSequence(simpl_A_prefix));
+                info.AddValue("A_fixedPrefix_ignoreCase", false);
+                info.AddValue("A_prefix_array", A_prefix_array);
+
+                var simpl_Ar_prefix = "";
+
+                for (int i = 0; i < Ar_prefix_array.Length; i++)
+                {
+                    ulong set = (ulong)(object)Ar_prefix_array[i];
+                    ulong size = simpl_bvalg.ComputeDomainSize(set);
+                    if (size > 1)
+                        break;
+                    else
+                        simpl_Ar_prefix += simpl_bvalg.PrettyPrint(set);
+                }
+
+                info.AddValue("Ar_prefix_array", Ar_prefix_array);
+                info.AddValue("Ar_prefix", StringUtility.SerializeStringToCharCodeSequence(simpl_Ar_prefix));
+                #endregion
+            }
+            else
+            {
+                info.AddValue("solver", this.builder.solver);
+                info.AddValue("A", A.Serialize());
+
+                info.AddValue("StateLimit", StateLimit);
+                info.AddValue("StartSetSizeLimit", StartSetSizeLimit);
+
+                info.AddValue("A_StartSet", A_StartSet);
+                info.AddValue("A_startset", A_startset);
+                info.AddValue("A_StartSet_Size", A_StartSet_Size);
+
+                info.AddValue("A_prefix", StringUtility.SerializeStringToCharCodeSequence(A_prefix));
+                info.AddValue("A_fixedPrefix_ignoreCase", A_fixedPrefix_ignoreCase);
+                info.AddValue("A_prefix_array", A_prefix_array);
+
+                info.AddValue("Ar_prefix_array", Ar_prefix_array);
+                info.AddValue("Ar_prefix", StringUtility.SerializeStringToCharCodeSequence(Ar_prefix));
+            }
         }
 
         /// <summary>
@@ -285,8 +650,8 @@ namespace Microsoft.Automata
             var solver = (ICharAlgebra<S>)info.GetValue("solver", typeof(ICharAlgebra<S>));
             this.builder = new SymbolicRegexBuilder<S>(solver);
 
-            this.atoms = ((ICharAlgebra<S>)builder.solver).GetPartition();
-            this.dt = ((BVAlgebra)builder.solver).dtree;
+            this.atoms = builder.solver.GetPartition();
+            this.dt = ((BVAlgebraBase)builder.solver).dtree;
 
             A = builder.Deserialize(info.GetString("A"));
             this.StateLimit = info.GetInt32("StateLimit");
@@ -303,15 +668,15 @@ namespace Microsoft.Automata
 
             SymbolicRegexNode<S> tmp = A;
             this.A_prefix_array = info.GetValue("A_prefix_array", typeof(S[])) as S[];
-            this.A_prefix = info.GetString("A_prefix");
+            this.A_prefix = StringUtility.DeserializeStringFromCharCodeSequence(info.GetString("A_prefix"));
             this.A_prefixUTF8 = System.Text.UnicodeEncoding.UTF8.GetBytes(this.A_prefix);
 
-            this.A_fixedPrefix_ignoreCase = A.IgnoreCaseOfFixedPrefix;
+            this.A_fixedPrefix_ignoreCase = info.GetBoolean("A_fixedPrefix_ignoreCase");
             this.A1_skipState = DeltaPlus(A_prefix, q0_A1, out tmp);
             this.A1_skipStateRegex = tmp;
 
             this.Ar_prefix_array = (S[])info.GetValue("Ar_prefix_array", typeof(S[]));
-            this.Ar_prefix = info.GetString("Ar_prefix");
+            this.Ar_prefix = StringUtility.DeserializeStringFromCharCodeSequence(info.GetString("Ar_prefix"));
             this.Ar_skipState = DeltaPlus(Ar_prefix, q0_Ar, out tmp);
             this.Ar_skipStateRegex = tmp;
 
@@ -325,59 +690,40 @@ namespace Microsoft.Automata
         /// </summary>
         /// <param name="file">file where the serialization is stored</param>
         /// <param name="formatter">given formatter</param>
-        public void Serialize(string file, IFormatter formatter = null)
+        override public void Serialize(string file, IFormatter formatter = null)
         {
-            var stream = new FileStream(file, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            var stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
             Serialize(stream, formatter);
             stream.Close();
         }
 
         /// <summary>
-        /// Serialize this symbolic regex matcher to the given stream.
+        /// Simplified serialization, character classes are replaced by some singletons.
+        /// Used for testing purposes only.
+        /// </summary>
+        /// <param name="stream">stream where the serialization is stored</param>
+        /// <param name="formatter">given formatter</param>
+        override internal void SerializeSimplified(Stream stream, IFormatter formatter = null)
+        {
+            if (formatter == null)
+                formatter = new BinaryFormatter();
+            this.serializeInSimplifiedForm = true;
+            formatter.Serialize(stream, this);
+            this.serializeInSimplifiedForm = false;
+        }
+
+        /// <summary>
+        /// Serialize this symbolic regex matcher to the given file.
         /// If formatter is null then an instance of 
         /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
         /// </summary>
         /// <param name="stream">stream where the serialization is stored</param>
         /// <param name="formatter">given formatter</param>
-        public void Serialize(Stream stream, IFormatter formatter = null)
+        override public void Serialize(Stream stream, IFormatter formatter = null)
         {
             if (formatter == null)
                 formatter = new BinaryFormatter();
             formatter.Serialize(stream, this);
-        }
-
-        /// <summary>
-        /// Deserialize the matcher of a symblic regex from the given file using the given formatter. 
-        /// If formatter is null then an instance of 
-        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
-        /// </summary>
-        /// <param name="file">source file of the serialized matcher</param>
-        /// <param name="formatter">given formatter</param>
-        /// <returns></returns>
-        public static SymbolicRegex<S> Deserialize(string file, IFormatter formatter = null)
-        {
-            if (formatter == null)
-                formatter = new BinaryFormatter();
-            Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
-            SymbolicRegex<S> matcher = (SymbolicRegex<S>)formatter.Deserialize(stream);
-            stream.Close();
-            return matcher;
-        }
-
-        /// <summary>
-        /// Deserialize the matcher of a symblic regex from the given stream using the given formatter. 
-        /// If formatter is null then an instance of 
-        /// System.Runtime.Serialization.Formatters.Binary.BinaryFormatter is used.
-        /// </summary>
-        /// <param name="stream">source file of the serialized matcher</param>
-        /// <param name="formatter">given formatter</param>
-        /// <returns></returns>
-        public static SymbolicRegex<S> Deserialize(Stream stream, IFormatter formatter = null)
-        {
-            if (formatter == null)
-                formatter = new BinaryFormatter();
-            SymbolicRegex<S> matcher = (SymbolicRegex<S>)formatter.Deserialize(stream);
-            return matcher;
         }
 
         /// <summary>
@@ -394,12 +740,18 @@ namespace Microsoft.Automata
         /// <summary>
         /// Constructs matcher for given symbolic regex
         /// </summary>
-        internal SymbolicRegex(SymbolicRegexBuilder<S> builder, SymbolicRegexNode<S> sr, CharSetSolver css, BDD[] minterms, int StateLimit = 1000, int startSetSizeLimit = 1)
+        internal SymbolicRegex(SymbolicRegexNode<S> sr, CharSetSolver css, BDD[] minterms, int StateLimit = 1000, int startSetSizeLimit = 128)
         {
             this.StartSetSizeLimit = startSetSizeLimit;
-            this.builder = builder;
+            this.builder = sr.builder;
             this.StateLimit = StateLimit;
-            if (builder.solver is BVAlgebra)
+            if (builder.solver is BV64Algebra)
+            {
+                BV64Algebra bva = builder.solver as BV64Algebra;
+                atoms = bva.atoms as S[];
+                dt = bva.dtree;
+            }
+            else if (builder.solver is BVAlgebra)
             {
                 BVAlgebra bva = builder.solver as BVAlgebra;
                 atoms = bva.atoms as S[];
@@ -412,7 +764,7 @@ namespace Microsoft.Automata
             }
             else
             {
-                throw new NotSupportedException(string.Format("only {0} or {1} solver is supported", typeof(BVAlgebra), typeof(CharSetSolver)));
+                throw new NotSupportedException(string.Format("only {0} or {1} or {2} algebra is supported", typeof(BV64Algebra), typeof(BVAlgebra), typeof(CharSetSolver)));
             }
 
             this.A = sr;
@@ -425,10 +777,9 @@ namespace Microsoft.Automata
 
             SymbolicRegexNode<S> tmp = A;
             this.A_prefix_array = A.GetPrefix();
-            this.A_prefix = A.GetFixedPrefix(css);
+            this.A_prefix = A.GetFixedPrefix(css, out this.A_fixedPrefix_ignoreCase);
             this.A_prefixUTF8 = System.Text.UnicodeEncoding.UTF8.GetBytes(this.A_prefix);
 
-            this.A_fixedPrefix_ignoreCase = A.IgnoreCaseOfFixedPrefix;
             this.A1_skipState = DeltaPlus(A_prefix, q0_A1, out tmp);
             this.A1_skipStateRegex = tmp;
 
@@ -442,6 +793,8 @@ namespace Microsoft.Automata
 
         private void InitializeRegexes()
         {
+            this.A_allLoopsAreLazy = this.A.CheckIfAllLoopsAreLazy();
+            this.A_containsLazyLoop = this.A.CheckIfContainsLazyLoop();
             this.Ar = this.A.Reverse();
             this.A1 = this.builder.MkConcat(this.builder.dotStar, this.A);
             this.regex2state[A1] = this.q0_A1;
@@ -487,7 +840,10 @@ namespace Microsoft.Automata
             {
                 char[] startchars = new List<char>(builder.solver.GenerateAllCharacters(A_startset)).ToArray();
                 A_StartSet_Vec = Array.ConvertAll(startchars, c => new Vector<ushort>(c));
+                A_StartSet_singleton = (ushort)startchars[0];
             }
+
+            this.A_StartSet_compiled = VectorizedIndexOf.CompileBooleanDecisionTree(this.A_StartSet);
 
             if (this.A_prefix != string.Empty)
             {
@@ -699,15 +1055,16 @@ namespace Microsoft.Automata
         /// <param name="input">input string</param>
         /// <param name="limit">upper bound on the number of found matches, nonpositive value (default is 0) means no bound</param>
         /// <param name="startat">the position to start search in the input string</param>
+        /// <param name="endat">end position in the input, negative value means unspecified and taken to be input.Length-1</param>
         /// </summary>
-        public Tuple<int, int>[] Matches(string input, int limit = 0, int startat = 0)
+        override public Tuple<int, int>[] Matches(string input, int limit = 0, int startat = 0, int endat = -1)
         {
             if (A.isNullable)
                 throw new AutomataException(AutomataExceptionKind.MustNotAcceptEmptyString);
             else if (string.IsNullOrEmpty(input) || startat >= input.Length || startat < 0)
                 throw new AutomataException(AutomataExceptionKind.InvalidArgument);
 
-            int k = input.Length;
+            int k = ((endat < 0 | endat >= input.Length) ? input.Length : endat + 1);
 
             //stores the accumulated matches
             List<Tuple<int, int>> matches = new List<Tuple<int, int>>();
@@ -717,19 +1074,22 @@ namespace Microsoft.Automata
             int i = startat;
 
             //after a match is found the match_start_boundary becomes 
-            //the first postion after the last match
-            //enforced when inlcude_overlaps == false
+            //the first position after the last match
             int match_start_boundary = i;
 
-            //TBD: dont enforce match_start_boundary when match overlaps are allowed
-            bool A_has_nonempty_prefix = (this.A_prefix != string.Empty);
+            bool A_has_nonempty_prefix = (!this.A_prefix.Equals(string.Empty));
+
+            bool AisLazy = A_allLoopsAreLazy;
+            bool AisSingleSeq = A.IsSequenceOfSingletons;
+
             while (true)
             {
                 int i_q0_A1;
+                int watchdog;
                 //optimize for the case when A starts with a fixed prefix
                 i = (A_has_nonempty_prefix ?
-                        FindFinalStatePositionOpt(input, i, out i_q0_A1) :
-                        FindFinalStatePosition(input, i, out i_q0_A1));
+                        FindFinalStatePositionOpt(input, k, i, out i_q0_A1, out watchdog) :
+                        FindFinalStatePosition(input, k, i, out i_q0_A1, out watchdog));
 
                 if (i == k)
                 {
@@ -737,9 +1097,31 @@ namespace Microsoft.Automata
                     break;
                 }
 
-                int i_start = FindStartPosition(input, i, i_q0_A1);
+                int i_start;
+                int i_end;
 
-                int i_end = FindEndPosition(input, i_start);
+                if (watchdog >= 0)
+                {
+                    i_start = i - watchdog + 1;
+                    i_end = i;
+                }
+                else
+                {
+                    //If A is lazy then there is no need to maximize length of end-position
+                    if (AisLazy)
+                    {
+                        if (AisSingleSeq)
+                            i_start = i - A.sequenceOfSingletons_count + 1;
+                        else
+                            i_start = FindStartPosition(input, i, i_q0_A1);
+                        i_end = i;
+                    }
+                    else
+                    {
+                        i_start = FindStartPosition(input, i, i_q0_A1);
+                        i_end = FindEndPosition(input, i_start);
+                    }
+                }
 
                 var newmatch = new Tuple<int, int>(i_start, i_end + 1 - i_start);
                 matches.Add(newmatch);
@@ -755,22 +1137,45 @@ namespace Microsoft.Automata
         }
 
         /// <summary>
+        /// It is known here that regex is nullable
+        /// </summary>
+        /// <param name="regex"></param>
+        /// <returns></returns>
+        int GetWatchdog(SymbolicRegexNode<S> regex)
+        {
+            if (regex.kind == SymbolicRegexKind.WatchDog)
+            {
+                return regex.lower;
+            }
+            else if (regex.kind == SymbolicRegexKind.Or)
+            {
+                return regex.alts.watchdog;
+            }
+            else
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>
         /// Returns true iff the input string matches A.
         /// <param name="input">input string</param>
         /// <param name="startat">the position to start search in the input string</param>
+        /// <param name="endat">end position in the input, negative value means 
+        /// unspecified and taken to be input.Length-1</param>
         /// </summary>
-        public bool IsMatch(string input, int startat = 0)
+        override public bool IsMatch(string input, int startat = 0, int endat = -1)
         {
             if (input == null || startat >= input.Length || startat < 0)
                 throw new AutomataException(AutomataExceptionKind.InvalidArgument);
 
-            int k = input.Length;
+            int k = ((endat < 0 | endat >= input.Length) ? input.Length : endat + 1);
 
             if (this.A.containsAnchors)
             {
-                #region separate case when A contains anchors
-                //TBD prefix optimization  ay still be important here 
-                //but the prefix needs to be computed based on A ... but with start anchors removed or treated specially
+                #region original regex contains anchors
+                //TBD prefix optimization may still be important here 
+                //but the prefix needs to be computed based on A, but with start anchors removed or treated specially
                 if (A2 == null)
                 {
                     #region initialize A2 to A.RemoveAnchors()
@@ -846,12 +1251,12 @@ namespace Microsoft.Automata
                     p = Delta(c, q, out regex);
 #endif
 
-                    if (regex == this.builder.dotStar) 
+                    if (regex == this.builder.dotStar)
                     {
                         //the input is accepted no matter how the input continues
                         return true;
                     }
-                    if (regex == this.builder.nothing) 
+                    if (regex == this.builder.nothing)
                     {
                         //the input is rejected no matter how the input continues
                         return false;
@@ -861,21 +1266,22 @@ namespace Microsoft.Automata
                     q = p;
                     i += 1;
                 }
-                return regex.IsNullable(i==0, true);
+                return regex.IsNullable;
                 #endregion
             }
             else
             {
-                //reuse A1
+                #region original regex contains no anchors
                 int i;
                 int i_q0;
+                int watchdog;
                 if (this.A_prefix != string.Empty)
                 {
-                    i = FindFinalStatePositionOpt(input, 0, out i_q0);
+                    i = FindFinalStatePositionOpt(input, k, startat, out i_q0, out watchdog);
                 }
                 else
                 {
-                    i = FindFinalStatePosition(input, 0, out i_q0);
+                    i = FindFinalStatePosition(input, k, startat, out i_q0, out watchdog);
                 }
                 if (i == k)
                 {
@@ -888,6 +1294,7 @@ namespace Microsoft.Automata
                     //thus if input[0...i] is in L(.*A) then input is in L(.*A.*)
                     return true;
                 }
+                #endregion
             }
         }
 
@@ -973,7 +1380,7 @@ namespace Microsoft.Automata
         /// <summary>
         /// Walk back in reverse using Ar to find the start position of match, start position is known to exist.
         /// </summary>
-        /// <param name="input">the input array</param>
+        /// <param name="input">the input string</param>
         /// <param name="i">position to start walking back from, i points at the last character of the match</param>
         /// <param name="match_start_boundary">do not pass this boundary when walking back</param>
         /// <returns></returns>
@@ -1080,15 +1487,17 @@ namespace Microsoft.Automata
         /// <summary>
         /// Return the position of the last character that leads to a final state in A1
         /// </summary>
-        /// <param name="input">given input array</param>
+        /// <param name="input">given input string</param>
         /// <param name="i">start position</param>
         /// <param name="i_q0">last position the initial state of A1 was visited</param>
-        /// <returns></returns>
-        private int FindFinalStatePosition(string input, int i, out int i_q0)
+        /// <param name="k">input length or bounded input length</param>
+        private int FindFinalStatePosition(string input, int k, int i, out int i_q0, out int watchdog)
         {
-            int k = input.Length;
             int q = q0_A1;
             int i_q0_A1 = i;
+
+            //TBD: anchors
+            SymbolicRegexNode<S> regex = null;
 
             while (i < k)
             {
@@ -1099,13 +1508,12 @@ namespace Microsoft.Automata
                     if (i == -1)
                     {
                         i_q0 = i_q0_A1;
+                        watchdog = -1;
                         return k;
                     }
                     i_q0_A1 = i;
                 }
 
-                //TBD: anchors
-                SymbolicRegexNode<S> regex;
                 int c = input[i];
                 int p;
 
@@ -1157,6 +1565,7 @@ namespace Microsoft.Automata
                 {
                     //p is a deadend state so any further search is meaningless
                     i_q0 = i_q0_A1;
+                    watchdog = -1;
                     return k;
                 }
 
@@ -1165,24 +1574,27 @@ namespace Microsoft.Automata
                 i += 1;
             }
             i_q0 = i_q0_A1;
+            watchdog = (regex == null ? -1  : this.GetWatchdog(regex));
             return i;
         }
 
         /// <summary>
         /// FindFinalState optimized for the case when A starts with a fixed prefix
         /// </summary>
-        private int FindFinalStatePositionOpt(string input, int i, out int i_q0)
+        /// <param name="input">given input string</param>
+        /// <param name="i">start position</param>
+        /// <param name="i_q0">last position the initial state of A1 was visited</param>
+        /// <param name="k">input length or bounded input length</param>
+        private int FindFinalStatePositionOpt(string input, int k, int i, out int i_q0, out int watchdog)
         {
-            int k = input.Length;
             int q = q0_A1;
             int i_q0_A1 = i;
             var prefix = this.A_prefix;
             //it is important to use Ordinal/OrdinalIgnoreCase to avoid culture dependent semantics of IndexOf
             StringComparison comparison = (this.A_fixedPrefix_ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            SymbolicRegexNode<S> regex = null;
             while (i < k)
             {
-                SymbolicRegexNode<S> regex = null;
-
                 // ++++ the following prefix optimization can be commented out without affecting correctness ++++
                 // but this optimization has a huge perfomance boost when fixed prefix exists .... in the order of 10x
                 //
@@ -1220,12 +1632,14 @@ namespace Microsoft.Automata
                         if (regex.isNullable)
                         {
                             i_q0 = i_q0_A1;
+                            watchdog = GetWatchdog(regex);
                             //return the last position of the match
                             return i - 1;
                         }
                         if (i == k)
                         {
                             i_q0 = i_q0_A1;
+                            watchdog = -1;
                             return k;
                         }
                     }
@@ -1235,6 +1649,13 @@ namespace Microsoft.Automata
                 //TBD: anchors
                 int c = input[i];
                 int p;
+
+                #region if original regex contains anchors and c is \n then insert startline and endline characters
+                if (A.containsAnchors && c == '\n')
+                {
+                    //TBD: anchors
+                }
+                #endregion
 
 #if INLINE
                 #region copy&paste region of the definition of Delta being inlined
@@ -1283,7 +1704,8 @@ namespace Microsoft.Automata
                 else if (regex == this.builder.nothing)
                 {
                     i_q0 = i_q0_A1;
-                    //p is a deadend state so any further saerch is meaningless
+                    //p is a deadend state so any further search is meaningless
+                    watchdog = -1;
                     return k;
                 }
 
@@ -1292,6 +1714,7 @@ namespace Microsoft.Automata
                 i += 1;
             }
             i_q0 = i_q0_A1;
+            watchdog = (regex == null ? -1 : this.GetWatchdog(regex));
             return i;
         }
 
@@ -1306,9 +1729,9 @@ namespace Microsoft.Automata
         /// <param name="input">pointer to input string</param>
         /// <param name="limit">upper bound on the number of found matches, nonpositive value (default is 0) means no bound</param>
         /// </summary>
-        unsafe public Tuple<int, int>[] Matches_(string input, int limit = 0, int startat = 0)
+        unsafe public Tuple<int, int>[] Matches_(string input, int limit = 0, int startat = 0, int endat = -1)
         {
-            int k = input.Length;
+            int k = ((endat < 0 | endat >= input.Length) ? input.Length : endat + 1);
             //stores the accumulated matches
             List<Tuple<int, int>> matches = new List<Tuple<int, int>>();
 
@@ -1324,17 +1747,39 @@ namespace Microsoft.Automata
             //TBD: dont enforce match_start_boundary when match overlaps are allowed
             bool A_has_nonempty_prefix = (this.A_prefix != string.Empty);
             fixed (char* inputp = input)
+                if (A_has_nonempty_prefix)
+                {
                 while (true)
                 {
                     int i_q0_A1;
-                    if (A_has_nonempty_prefix)
-                    {
                         i = FindFinalStatePositionOpt_(input, i, out i_q0_A1);
+
+                        if (i == k)
+                    {
+                            //end of input has been reached without reaching a final state, so no more matches
+                            break;
+                        }
+
+                        int i_start = FindStartPosition_(inputp, i, i_q0_A1);
+
+                        int i_end = FindEndPosition_(inputp, k, i_start);
+
+                        var newmatch = new Tuple<int, int>(i_start, i_end + 1 - i_start);
+                        matches.Add(newmatch);
+                        if (limit > 0 && matches.Count == limit)
+                            break;
+
+                        //continue matching from the position following last match
+                        i = i_end + 1;
+                        match_start_boundary = i;
+                    }
                     }
                     else
                     {
+                    while (true)
+                    {
+                        int i_q0_A1;
                         i = FindFinalStatePosition_(inputp, k, i, out i_q0_A1);
-                    }
 
                     if (i == k)
                     {
@@ -1354,6 +1799,7 @@ namespace Microsoft.Automata
                     //continue matching from the position following last match
                     i = i_end + 1;
                     match_start_boundary = i;
+                }
                 }
 
             return matches.ToArray();
@@ -1381,11 +1827,11 @@ namespace Microsoft.Automata
                     }
                     else if (A_StartSet_Vec.Length == 1)
                     {
-                        i = VectorizedIndexOf.UnsafeIndexOf(inputp, k, i, this.A_StartSet, A_StartSet_Vec[0]);
+                        i = VectorizedIndexOf.UnsafeIndexOf1(inputp, k, i, this.A_StartSet_singleton, A_StartSet_Vec[0]);
                     }
                     else
                     {
-                        i = VectorizedIndexOf.UnsafeIndexOf(inputp, k, i, this.A_StartSet, A_StartSet_Vec);
+                        i = VectorizedIndexOf.UnsafeIndexOf(inputp, k, i, this.A_StartSet, A_StartSet_compiled);
                     }
 
                     if (i == -1)
@@ -1472,69 +1918,69 @@ namespace Microsoft.Automata
             StringComparison comparison = (this.A_fixedPrefix_ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
             int k = input.Length;
             fixed (char* inputp = input)
-            while (i < k)
-            {
-                SymbolicRegexNode<S> regex = null;
-
-                #region prefix optimization 
-                //stay in the initial state if the prefix does not match
-                //thus advance the current position to the 
-                //first position where the prefix does match
-                if (q == q0_A1)
+                while (i < k)
                 {
-                    i_q0_A1 = i;
+                    SymbolicRegexNode<S> regex = null;
 
-                    if (this.A_fixedPrefix_ignoreCase)
-                        i = input.IndexOf(A_prefix, i, comparison);
-                    else
-                        i = IndexOfStartPrefix_(inputp, k, i);
-
-                    if (i == -1)
+                    #region prefix optimization 
+                    //stay in the initial state if the prefix does not match
+                    //thus advance the current position to the 
+                    //first position where the prefix does match
+                    if (q == q0_A1)
                     {
-                        //if a matching position does not exist then IndexOf returns -1
-                        //so set i = k to match the while loop behavior
-                        i = k;
-                        break;
-                    }
-                    else
-                    {
-                        //compute the end state for the A prefix
-                        //skip directly to the resulting state
-                        // --- i.e. does the loop ---
-                        //for (int j = 0; j < prefix.Length; j++)
-                        //    q = Delta(prefix[j], q, out regex);
-                        // ---
-                        q = this.A1_skipState;
-                        regex = this.A1_skipStateRegex;
+                        i_q0_A1 = i;
 
-                        //skip the prefix
-                        i = i + A_prefix_length;
-                        if (regex.isNullable)
+                        if (this.A_fixedPrefix_ignoreCase)
+                            i = input.IndexOf(A_prefix, i, comparison);
+                        else
+                            i = VectorizedIndexOf.UnsafeIndexOf(inputp, k, i, A_prefix);
+
+                        if (i == -1)
                         {
-                            i_q0 = i_q0_A1;
-                            //return the last position of the match
-                            return i - 1;
+                            //if a matching position does not exist then IndexOf returns -1
+                            //so set i = k to match the while loop behavior
+                            i = k;
+                            break;
                         }
-                        if (i == k)
+                        else
                         {
-                            i_q0 = i_q0_A1;
-                            return k;
+                            //compute the end state for the A prefix
+                            //skip directly to the resulting state
+                            // --- i.e. does the loop ---
+                            //for (int j = 0; j < prefix.Length; j++)
+                            //    q = Delta(prefix[j], q, out regex);
+                            // ---
+                            q = this.A1_skipState;
+                            regex = this.A1_skipStateRegex;
+
+                            //skip the prefix
+                            i = i + A_prefix_length;
+                            if (regex.isNullable)
+                            {
+                                i_q0 = i_q0_A1;
+                                //return the last position of the match
+                                return i - 1;
+                            }
+                            if (i == k)
+                            {
+                                i_q0 = i_q0_A1;
+                                return k;
+                            }
                         }
                     }
-                }
-                #endregion
+                    #endregion
 
-                //TBD: anchors
-                int c = inputp[i];
-                int p;
+                    //TBD: anchors
+                    int c = inputp[i];
+                    int p;
 
 #if INLINE
-                #region copy&paste region of the definition of Delta being inlined
+                    #region copy&paste region of the definition of Delta being inlined
                     int atom_id = (dt.precomputed.Length > c ? dt.precomputed[c] : dt.bst.Find(c));
                     S atom = atoms[atom_id];
                     if (q < StateLimit)
                     {
-                #region use delta
+                    #region use delta
                         int offset = (q * K) + atom_id;
                         p = delta[offset];
                         if (p == 0)
@@ -1545,11 +1991,11 @@ namespace Microsoft.Automata
                         {
                             regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                         }
-                #endregion
+                    #endregion
                     }
                     else
                     {
-                #region use deltaExtra
+                    #region use deltaExtra
                         int[] q_trans = deltaExtra[q];
                         p = q_trans[atom_id];
                         if (p == 0)
@@ -1560,29 +2006,29 @@ namespace Microsoft.Automata
                         {
                             regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                         }
-                #endregion
+                    #endregion
                     }
-                #endregion
+                    #endregion
 #else
-                p = Delta(c, q, out regex);
+                    p = Delta(c, q, out regex);
 #endif
 
-                if (regex.isNullable)
-                {
-                    //p is a final state so match has been found
-                    break;
-                }
-                else if (regex == this.builder.nothing)
-                {
-                    i_q0 = i_q0_A1;
-                    //p is a deadend state so any further search is meaningless
-                    return k;
-                }
+                    if (regex.isNullable)
+                    {
+                        //p is a final state so match has been found
+                        break;
+                    }
+                    else if (regex == this.builder.nothing)
+                    {
+                        i_q0 = i_q0_A1;
+                        //p is a deadend state so any further search is meaningless
+                        return k;
+                    }
 
-                //continue from the target state
-                q = p;
-                i += 1;
-            }
+                    //continue from the target state
+                    q = p;
+                    i += 1;
+                }
             i_q0 = i_q0_A1;
             return i;
         }
@@ -1788,7 +2234,7 @@ namespace Microsoft.Automata
         int IndexOfStartset(string input, int i)
         {
             int k = input.Length;
-            while (i < k) 
+            while (i < k)
             {
                 var input_i = input[i];
                 if (input_i < A_StartSet.precomputed.Length ? A_StartSet.precomputed[input_i] : A_StartSet.bst.Find(input_i) == 1)
@@ -1834,7 +2280,7 @@ namespace Microsoft.Automata
                     break;
                 else
                 {
-                    i += step; 
+                    i += step;
                 }
             }
             if (i == k)
@@ -1968,7 +2414,7 @@ namespace Microsoft.Automata
             //enforced when inlcude_overlaps == false
             int match_start_boundary = 0;
 
-            int surrogate_codepoint = 0;   
+            int surrogate_codepoint = 0;
 
             //TBD: dont enforce match_start_boundary when match overlaps are allowed
             bool A_has_nonempty_prefix = (this.A_prefix != string.Empty);
@@ -2061,7 +2507,7 @@ namespace Microsoft.Automata
                 S atom = atoms[atom_id];
                 if (q < StateLimit)
                 {
-                    #region use delta
+                #region use delta
                     int offset = (q * K) + atom_id;
                     p = delta[offset];
                     if (p == 0)
@@ -2072,11 +2518,11 @@ namespace Microsoft.Automata
                     {
                         regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                     }
-                    #endregion
+                #endregion
                 }
                 else
                 {
-                    #region use deltaExtra
+                #region use deltaExtra
                     int[] q_trans = deltaExtra[q];
                     p = q_trans[atom_id];
                     if (p == 0)
@@ -2087,7 +2533,7 @@ namespace Microsoft.Automata
                     {
                         regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                     }
-                    #endregion
+                #endregion
                 }
                 #endregion
 #else
@@ -2204,7 +2650,7 @@ namespace Microsoft.Automata
                 S atom = atoms[atom_id];
                 if (q < StateLimit)
                 {
-                    #region use delta
+                #region use delta
                     int offset = (q * K) + atom_id;
                     p = delta[offset];
                     if (p == 0)
@@ -2215,11 +2661,11 @@ namespace Microsoft.Automata
                     {
                         regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                     }
-                    #endregion
+                #endregion
                 }
                 else
                 {
-                    #region use deltaExtra
+                #region use deltaExtra
                     int[] q_trans = deltaExtra[q];
                     p = q_trans[atom_id];
                     if (p == 0)
@@ -2230,7 +2676,7 @@ namespace Microsoft.Automata
                     {
                         regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                     }
-                    #endregion
+                #endregion
                 }
                 #endregion
 #else
@@ -2277,7 +2723,7 @@ namespace Microsoft.Automata
         /// <param name="i_q0">last position the initial state of A1 was visited</param>
         /// <param name="surrogate_codepoint">surrogate codepoint</param>
         /// <returns></returns>
-        private int FindFinalStatePositionUTF8(byte[] input, int i, ref int surrogate_codepoint,  out int i_q0)
+        private int FindFinalStatePositionUTF8(byte[] input, int i, ref int surrogate_codepoint, out int i_q0)
         {
             int k = input.Length;
             int q = q0_A1;
@@ -2402,7 +2848,7 @@ namespace Microsoft.Automata
                 S atom = atoms[atom_id];
                 if (q < StateLimit)
                 {
-                    #region use delta
+                #region use delta
                     int offset = (q * K) + atom_id;
                     p = delta[offset];
                     if (p == 0)
@@ -2413,11 +2859,11 @@ namespace Microsoft.Automata
                     {
                         regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                     }
-                    #endregion
+                #endregion
                 }
                 else
                 {
-                    #region use deltaExtra
+                #region use deltaExtra
                     int[] q_trans = deltaExtra[q];
                     p = q_trans[atom_id];
                     if (p == 0)
@@ -2428,7 +2874,7 @@ namespace Microsoft.Automata
                     {
                         regex = (p < StateLimit ? state2regex[p] : state2regexExtra[p]);
                     }
-                    #endregion
+                #endregion
                 }
                 #endregion
 #else
@@ -2456,6 +2902,11 @@ namespace Microsoft.Automata
             }
             i_q0 = i_q0_A1;
             return i;
+        }
+
+        override public string GenerateRandomMatch(int maxLoopUnrol = 10, int cornerCaseProb = 5, int maxSamplingIter = 3)
+        {
+            return A.GenerateRandomMember(maxLoopUnrol, cornerCaseProb, maxSamplingIter);
         }
         #endregion
     }

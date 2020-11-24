@@ -9,7 +9,7 @@ using Microsoft.Automata;
 using System.Text.RegularExpressions;
 using System.IO;
 
-namespace Microsoft.Automata.Tests 
+namespace Automata.Tests 
 {
     /// <summary>
     /// Tests core functionality used by Rex 
@@ -88,6 +88,28 @@ namespace Microsoft.Automata.Tests
             }
         }
 
+        [TestMethod]
+        public void TestLazyVsEagerLoop()
+        {
+            //eager case
+            var r = new Regex(@"[a-z]*a+[^y]");
+            var s = "000xxxaaayyaaazzzaaawww";
+            var matches = r.Matches(s);
+            Assert.IsTrue(matches.Count == 1);
+            var m0 = matches[0];
+            Assert.IsTrue(matches[0].Value == "xxxaaayyaaazzzaaaw");
+            var sr_ = r.Compile();
+            Automata.Tests.SerializationTests.SerializeObjectToFile_soap("test.soap", sr_);
+            var sr = (IMatcher)Automata.Tests.SerializationTests.DeserializeObjectFromFile_soap("test.soap");
+            var sr_matches = sr.Matches(s);
+            Assert.IsTrue(sr_matches.Length == 1);
+            Assert.IsTrue(s.Substring(sr_matches[0].Item1, sr_matches[0].Item2) == "xxxaaayyaaazzzaaaw");
+            //lazy case
+            var r1 = new Regex(@"[a-z]*?a+[^y]");
+            var matches1 = r1.Matches(s);
+            Assert.IsTrue(matches1.Count == 3);
+        }
+
 
         [TestMethod]
         public void TestSampleRegexes()
@@ -103,14 +125,14 @@ namespace Microsoft.Automata.Tests
             for (int i = 1; i < k; i++)
                 foreach (string s in rex.GenerateMembers(RegexOptions.None, rxCount, regexes[i]))
                     if (!exclude.Contains(i))
-                        if (!Rex.RexEngine.IsMatch(s, regexes[i], RegexOptions.None))
+                        if (!Microsoft.Automata.Rex.RexEngine.IsMatch(s, regexes[i], RegexOptions.None))
                             Assert.IsTrue(false, "regex on line " + i + " in Samples/regexes.txt");
         }
 
         [TestMethod]
         public void TestSampleRegexesInMultilineMode()
         {
-            Rex.RexEngine rex = new Rex.RexEngine(BitWidth.BV16);
+            Microsoft.Automata.Rex.RexEngine rex = new Microsoft.Automata.Rex.RexEngine(BitWidth.BV16);
             string[] regexes = File.ReadAllLines(regexesFile);
             List<int> exclude = new List<int>();
             exclude.Add(299);
@@ -119,7 +141,7 @@ namespace Microsoft.Automata.Tests
             for (int i = 0; i < regexes.Length; i++)
                 foreach (string s in rex.GenerateMembers(RegexOptions.Multiline, rxCount, regexes[i]))
                     if (!exclude.Contains(i))
-                        Assert.IsTrue(Rex.RexEngine.IsMatch(s, regexes[i], RegexOptions.Multiline), "regex on line " + i + " in Samples/regexes.txt");
+                        Assert.IsTrue(Microsoft.Automata.Rex.RexEngine.IsMatch(s, regexes[i], RegexOptions.Multiline), "regex on line " + i + " in Samples/regexes.txt");
         }
 
         [TestMethod]
@@ -348,7 +370,7 @@ namespace Microsoft.Automata.Tests
         }
 
         [TestMethod]
-        public void TestBDD()
+        public void TestBDD_digit()
         {
             var d = @"^[0-9]$"; //between 2 and 3 word letters
 
@@ -358,6 +380,71 @@ namespace Microsoft.Automata.Tests
             var bdd = sfa.GetMoveFrom(sfa.InitialState).Label;
 
             //bdd.ToDot("C:/tmp/dot/digit.dot");
+        }
+
+        [TestMethod]
+        public void TestBDD_evendigit()
+        {
+            var d = @"^[02468]$"; //between 2 and 3 word letters
+
+            var rex = new Microsoft.Automata.Rex.RexEngine(BitWidth.BV7); //using ascii
+            var sfa = rex.Minimize(rex.CreateFromRegexes(d));
+
+            var bdd = sfa.GetMoveFrom(sfa.InitialState).Label;
+
+           // bdd.ToDot("C:/tmp/dot/evendigit.dot");
+        }
+
+        [TestMethod]
+        public void TestBDD_odddigit()
+        {
+            var d = @"^[13579]$"; //between 2 and 3 word letters
+
+            var rex = new Microsoft.Automata.Rex.RexEngine(BitWidth.BV7); //using ascii
+            var sfa = rex.Minimize(rex.CreateFromRegexes(d));
+
+            var bdd = sfa.GetMoveFrom(sfa.InitialState).Label;
+
+            //bdd.ToDot("C:/tmp/dot/odddigit.dot");
+        }
+
+        [TestMethod]
+        public void TestBDD_uppercase()
+        {
+            var d = @"^[A-Z]$";
+
+            var rex = new Microsoft.Automata.Rex.RexEngine(BitWidth.BV7); //using ascii
+            var sfa = rex.Minimize(rex.CreateFromRegexes(d));
+
+            var bdd = sfa.GetMoveFrom(sfa.InitialState).Label;
+
+            //bdd.ToDot("C:/tmp/dot/uppercase.dot");
+        }
+
+        [TestMethod]
+        public void TestBDD_lowercase()
+        {
+            var d = @"^[a-z]$";
+
+            var rex = new Microsoft.Automata.Rex.RexEngine(BitWidth.BV7); //using ascii
+            var sfa = rex.Minimize(rex.CreateFromRegexes(d));
+
+            var bdd = sfa.GetMoveFrom(sfa.InitialState).Label;
+
+            //bdd.ToDot("C:/tmp/dot/lowercase.dot");
+        }
+
+        [TestMethod]
+        public void TestBDD_letter()
+        {
+            var d = @"^[A-Za-z]$";
+
+            var rex = new Microsoft.Automata.Rex.RexEngine(BitWidth.BV7); //using ascii
+            var sfa = rex.Minimize(rex.CreateFromRegexes(d));
+
+            var bdd = sfa.GetMoveFrom(sfa.InitialState).Label;
+
+            //bdd.ToDot("C:/tmp/dot/letter.dot");
         }
 
         [TestMethod]
