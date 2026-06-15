@@ -5,7 +5,16 @@ using System.Text.RegularExpressions;
 
 namespace Microsoft.Automata
 {
-    internal class RegexToSMTConverter
+    /// <summary>
+    /// Public so that consumers (notably the .NET Interactive notebooks in CoursIA,
+    /// series SMT/Z3 notebook 06) can emit SMT-LIB string-theory expressions directly
+    /// from a regex with the fork's surface '&amp;'/'~' operators (#2979 Step 6).
+    /// The public surface is limited to read-only conversion entry points
+    /// (<see cref="ConvertRegex(string)"/>, <see cref="ConvertSeq(string)"/>) and the
+    /// underlying <see cref="Solver"/> accessor; making the type public exposes no
+    /// mutating or otherwise unsafe operation.
+    /// </summary>
+    public class RegexToSMTConverter
     {
         RegexToAutomatonConverter<BDD> automConverter;
         CharSetSolver css;
