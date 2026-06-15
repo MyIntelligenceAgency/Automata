@@ -23,6 +23,7 @@ namespace System.Text.RegularExpressions {
         internal RegexNode _stack;
         internal RegexNode _group;
         internal RegexNode _alternation;
+        internal RegexNode _intersection;   // BREX & layer (#2979); precedence: concat > & > |
         internal RegexNode _concatenation;
         internal RegexNode _unit;
 
@@ -302,6 +303,12 @@ namespace System.Text.RegularExpressions {
 
                     case '|':
                         AddAlternate();
+                        goto ContinueOuterScan;
+
+                    case '&':
+                        // BREX surface intersection operator (#2979). Distinct from the
+                        // [a-z&&...] char-class intersection handled by ScanCharClass.
+                        AddIntersection();
                         goto ContinueOuterScan;
 
                     case ')':
@@ -1803,8 +1810,8 @@ namespace System.Text.RegularExpressions {
         internal static readonly byte[] _category = new byte[] {
             // 0 1 2 3 4 5 6 7 8 9 A B C D E F 0 1 2 3 4 5 6 7 8 9 A B C D E F 
                0,0,0,0,0,0,0,0,0,X,X,0,X,X,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-            //   ! " # $ % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : ; < = > ? 
-               X,0,0,Z,S,0,0,0,S,S,Q,Q,0,0,S,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,Q,
+            //   ! " # $ % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : ; < = > ?
+               X,0,0,Z,S,0,S,0,S,S,Q,Q,0,0,S,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,Q,
             // @ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z [ \ ] ^ _
                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,S,S,0,S,0,
             // ' a b c d e f g h i j k l m n o p q r s t u v w x y z { | } ~ 
@@ -1909,7 +1916,8 @@ namespace System.Text.RegularExpressions {
         internal void PushGroup() {
             _group._next = _stack;
             _alternation._next = _group;
-            _concatenation._next = _alternation;
+            _intersection._next = _alternation;
+            _concatenation._next = _intersection;
             _stack = _concatenation;
         }
 
@@ -1918,7 +1926,8 @@ namespace System.Text.RegularExpressions {
          */
         internal void PopGroup() {
             _concatenation = _stack;
-            _alternation = _concatenation._next;
+            _intersection = _concatenation._next;
+            _alternation = _intersection._next;
             _group = _alternation._next;
             _stack = _group._next;
 
@@ -1945,6 +1954,7 @@ namespace System.Text.RegularExpressions {
         internal void StartGroup(RegexNode openGroup) {
             _group = openGroup;
             _alternation = new RegexNode(RegexNode.Alternate, _options);
+            _intersection = new RegexNode(RegexNode.Intersect, _options);
             _concatenation = new RegexNode(RegexNode.Concatenate, _options);
         }
 
@@ -1956,11 +1966,30 @@ namespace System.Text.RegularExpressions {
 
             if (_group.Type() == RegexNode.Testgroup || _group.Type() == RegexNode.Testref) {
                 _group.AddChild(_concatenation.ReverseLeft());
+                _intersection = new RegexNode(RegexNode.Intersect, _options);
             }
-            else {
+            else if (_intersection.ChildCount() == 0) {
+                // No '&' seen in this branch: legacy path (byte-identical to upstream).
                 _alternation.AddChild(_concatenation.ReverseLeft());
             }
+            else {
+                // Fold the pending intersection (which subsumes the concatenation chain)
+                // into the alternation, then start a fresh intersection layer.
+                _intersection.AddChild(_concatenation.ReverseLeft());
+                _alternation.AddChild(_intersection.ReverseLeft());
+                _intersection = new RegexNode(RegexNode.Intersect, _options);
+            }
 
+            _concatenation = new RegexNode(RegexNode.Concatenate, _options);
+        }
+
+        /*
+         * Finish the current concatenation into an intersection (in response to a '&').
+         * Mirrors AddAlternate for '|', but folds into the _intersection layer
+         * (precedence: concatenation > & > |). BREX surface operator (#2979).
+         */
+        internal void AddIntersection() {
+            _intersection.AddChild(_concatenation.ReverseLeft());
             _concatenation = new RegexNode(RegexNode.Concatenate, _options);
         }
 
@@ -2040,8 +2069,14 @@ namespace System.Text.RegularExpressions {
                 if (_group.Type() == RegexNode.Testref && _group.ChildCount() > 2 || _group.ChildCount() > 3)
                     throw MakeException(SR.GetString(SR.TooManyAlternates));
             }
-            else {
+            else if (_intersection.ChildCount() == 0) {
+                // No '&' seen: legacy path (byte-identical to upstream).
                 _alternation.AddChild(_concatenation.ReverseLeft());
+                _group.AddChild(_alternation);
+            }
+            else {
+                _intersection.AddChild(_concatenation.ReverseLeft());
+                _alternation.AddChild(_intersection.ReverseLeft());
                 _group.AddChild(_alternation);
             }
 

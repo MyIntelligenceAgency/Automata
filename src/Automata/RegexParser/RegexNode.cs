@@ -110,6 +110,12 @@ namespace System.Text.RegularExpressions {
         internal const int Testref    = 33;                   //          (?(n) | )
         internal const int Testgroup  = 34;                   //          (?(...) | )
 
+        // BREX surface operators (AutomataDotNet fork, #2979): intersection (&).
+        // Complement (~) is added in a follow-up cycle. These kinds are above the
+        // upstream range and only ever produced by the patched parser, so legacy
+        // .NET regex trees never contain them.
+        internal const int Intersect  = 35;                   // n        A&B&C  (BREX &)
+
         /*
          * RegexNode data members
          * 
