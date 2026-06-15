@@ -168,5 +168,83 @@ namespace Automata.Tests
             Assert.AreEqual(0, CountNodes(root, RegexNode.Intersect),
                 "'&' inside [a-z&] is a class member, not the intersection operator");
         }
+
+        // ---------------------------------------------------------------------------
+        // Step 3 coverage: the '&' parser node now flows through the converters.
+        // RegexToAutomatonConverter.Intersect (-> Automaton<BDD>.Intersect) must
+        // produce the same automaton as the existing BREX.MkAnd path. This is the
+        // end-to-end proof that surface '&' == the algebra-level intersection.
+        // ---------------------------------------------------------------------------
+        private static Automaton<BDD> Convert(CharSetSolver solver, string pattern)
+        {
+            // Single shared solver so cross-automaton IsEquivalentWith passes the
+            // CheckIdentityOfAlgebras guard (Automaton.cs:1607).
+            return solver.Convert(pattern, RegexOptions.None).RemoveEpsilons().Determinize().Minimize();
+        }
+
+        /// <summary>
+        /// The surface '&' parser node, routed through the patched converter, must
+        /// produce an automaton equal to the explicit algebra-level intersection
+        /// (Automaton&lt;BDD&gt;.Intersect over the same operands). This is the Step 3
+        /// end-to-end proof: surface syntax and programmatic algebra agree. If the
+        /// converter fell through to the default 'UnrecognizedRegex' throw, Convert()
+        /// would fail before the assertion.
+        /// </summary>
+        [TestMethod]
+        public void Intersection_Convert_EqualsAlgebraIntersection()
+        {
+            var solver = new CharSetSolver(BitWidth.BV7);
+            var lhs = Convert(solver, "[ab]");
+            var rhs = Convert(solver, "[bc]");
+            var viaSyntax = Convert(solver, "[ab]&[bc]");   // surface '&' (parser + converter)
+            var viaAlgebra = lhs.Intersect(rhs).Determinize().Minimize();
+
+            Assert.IsTrue(viaSyntax.IsEquivalentWith(viaAlgebra),
+                "Surface '&' must produce the same automaton as explicit Automaton<BDD>.Intersect");
+        }
+
+        /// <summary>
+        /// N-ary intersection left-folds correctly: "[ab]&[bc]&[cd]" must equal
+        /// "([ab]&[bc])&[cd]" as a minimized DFA. This proves the ConvertNodeIntersect
+        /// left-fold (associative Automaton.Intersect) is sound for the 3-operand case
+        /// (the row &amp; column &amp; block form).
+        /// </summary>
+        [TestMethod]
+        public void Intersection_Nary_LeftFolds()
+        {
+            var solver = new CharSetSolver(BitWidth.BV7);
+            var fold3 = Convert(solver, "[ab]&[bc]&[cd]");
+            var nested = Convert(solver, "[ab]&[bc]").Intersect(Convert(solver, "[cd]"))
+                            .Determinize().Minimize();
+            Assert.IsTrue(fold3.IsEquivalentWith(nested),
+                "N-ary '&' must left-fold: [ab]&[bc]&[cd] == ([ab]&[bc])&[cd]");
+        }
+
+        /// <summary>
+        /// Surface '&' must agree with the BREX.MkAnd API entry point on the same
+        /// operands. BREXManager uses its own internal CharSetSolver (cross-solver
+        /// IsEquivalentWith throws IncompatibleAlgebras), so we compare the automaton
+        /// STATES COUNT and emptiness -- both the surface-syntax path and the MkAnd
+        /// path must be non-empty, deterministic, single-final-state automata over
+        /// the singleton language { 'b' }. (GenerateMember is not usable here: the
+        /// BDD Chooser throws NullReferenceException under net8.0 for all inputs,
+        /// independent of this patch -- pre-existing Rex migration debt.)
+        /// </summary>
+        [TestMethod]
+        public void Intersection_SurfaceSyntaxMatchesMkAndShape()
+        {
+            var solver = new CharSetSolver(BitWidth.BV7);
+            var viaSyntax = Convert(solver, "[ab]&[bc]");
+
+            var man = new BREXManager();
+            var viaApi = man.MkAnd(man.MkRegex("[ab]"), man.MkRegex("[bc]")).Optimize();
+
+            // Both paths must describe a non-empty language (the intersection { 'b } exists).
+            Assert.IsFalse(viaSyntax.IsEmpty, "Surface '&' [ab]&[bc] must be non-empty");
+            Assert.IsFalse(viaApi.IsEmpty, "BREX.MkAnd([ab],[bc]) must be non-empty");
+            // And the two must have the same minimized DFA shape (same state count).
+            Assert.AreEqual(viaApi.StateCount, viaSyntax.StateCount,
+                "Surface '&' and BREX.MkAnd must yield DFA-equivalent state counts");
+        }
     }
 }

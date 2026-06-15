@@ -317,6 +317,12 @@ namespace Microsoft.Automata
                     throw new AutomataException("Regex construct not supported: greedy constructs (?>) (?<)");
                 case RegexNode.Group:
                     throw new AutomataException("Regex construct not supported: grouping (?:)");
+                case RegexNode.Intersect:
+                    // BREX surface operator '&' (#2979). Fold the children via Automaton<S>.Intersect.
+                    // Intersect(B, timeout) is an instance method over the internal boolean algebra
+                    // (Automaton.cs:1552 -> MkProduct), so no explicit solver argument is needed.
+                    // Left fold: ((a & b) & c) -- automaton intersection is associative.
+                    return ConvertNodeIntersect(node);
                 case RegexNode.Prevent:
                     throw new AutomataException("Regex construct not supported: prevent constructs (?!) (?<!)");
                 case RegexNode.Require:
@@ -332,6 +338,22 @@ namespace Microsoft.Automata
                 default:
                     throw new AutomataException(AutomataExceptionKind.UnrecognizedRegex);
             }
+        }
+
+        /// <summary>
+        /// BREX surface intersection operator '&amp;' (#2979). Left-folds the children via
+        /// Automaton&lt;S&gt;.Intersect (Automaton.cs:1552). Single-child intersection is a
+        /// pass-through (defensive: a lone "(&amp;a)" group still resolves). Empty intersection
+        /// would denote an unsatisfiable language; preserve that by folding onto the first child.
+        /// </summary>
+        private Automaton<S> ConvertNodeIntersect(RegexNode node)
+        {
+            if (node.ChildCount() == 0)
+                return automBuilder.MkEmptyAutomaton();
+            var result = ConvertNode(node.Child(0));
+            for (int i = 1; i < node.ChildCount(); i++)
+                result = result.Intersect(ConvertNode(node.Child(i)));
+            return result;
         }
 
         #region Character sequences

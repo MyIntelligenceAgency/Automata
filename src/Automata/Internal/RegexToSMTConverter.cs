@@ -81,6 +81,9 @@ namespace Microsoft.Automata
                     { ConvertNode(node.Child(0)); return; }
                 case RegexNode.Concatenate:
                     { ConvertNodeConcatenate(node); return; }
+                case RegexNode.Intersect:
+                    // BREX surface operator '&' (#2979) -> SMT-LIB re.inter (string theory).
+                    { ConvertNodeIntersect(node); return; }
                 case RegexNode.Empty:
                     { ConvertNodeEmpty(node); return; }
                 case RegexNode.End:
@@ -350,6 +353,33 @@ namespace Microsoft.Automata
                 {
                     if (i < children.Count - 1)
                         Write("(re-union ");
+                    else
+                        Write(" ");
+
+                    ConvertNode(children[i]);
+                }
+                for (int i = 0; i < children.Count - 1; i++)
+                    Write(")");
+            }
+        }
+
+        /// <summary>
+        /// BREX surface intersection operator '&amp;' (#2979) -> SMT-LIB (re.inter ...).
+        /// Mirrors ConvertNodeAlternate's left-fold emit shape, substituting re-union -> re.inter.
+        /// SMT-LIB string theory has supported re.inter since the 2016 string-theory integration;
+        /// the 21-char witness cap (#6) is a solver-side constraint, not a syntax issue.
+        /// </summary>
+        private void ConvertNodeIntersect(RegexNode node)
+        {
+            var children = node._children;
+            if (children.Count == 1)
+                ConvertNode(children[0]);
+            else
+            {
+                for (int i = 0; i < children.Count; i++)
+                {
+                    if (i < children.Count - 1)
+                        Write("(re.inter ");
                     else
                         Write(" ");
 
