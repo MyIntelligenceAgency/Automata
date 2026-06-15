@@ -9,9 +9,12 @@ namespace Microsoft.Automata
     public class Chooser
     {
         /// <summary>
-        /// The RNGCryptoServiceProvider object the Chooser uses.
+        /// The cryptographically-secure random number generator the Chooser uses.
+        /// Migrated from RNGCryptoServiceProvider (obsolete under net8.0, SYSLIB0023) to
+        /// its base RandomNumberGenerator, which preserves the same instance GetBytes(byte[])
+        /// API (#2979 Step 4 -- unblocks RexEngine witness generation under net8.0).
         /// </summary>
-        private RNGCryptoServiceProvider randomNumberGenerator = new RNGCryptoServiceProvider();
+        private RandomNumberGenerator randomNumberGenerator = RandomNumberGenerator.Create();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Chooser" /> class.

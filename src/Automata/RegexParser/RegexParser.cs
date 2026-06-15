@@ -2043,6 +2043,14 @@ namespace System.Text.RegularExpressions {
         internal void AddAlternate() {
             // The | parts inside a Testgroup group go directly to the group
 
+            // BREX (#2979): like AddIntersection(), the ordinary-char scan consumes the '|'
+            // and routes here via goto ContinueOuterScan, bypassing ApplyPendingComplement().
+            // Flush any pending '~' complement and fold _unit first so '~A|~B' wraps each
+            // operand correctly. No-op on the legacy path (pending 0, _unit null at '|').
+            ApplyPendingComplement();
+            if (_unit != null)
+                AddConcatenate();
+
             if (_group.Type() == RegexNode.Testgroup || _group.Type() == RegexNode.Testref) {
                 _group.AddChild(_concatenation.ReverseLeft());
                 _intersection = new RegexNode(RegexNode.Intersect, _options);
@@ -2066,8 +2074,18 @@ namespace System.Text.RegularExpressions {
          * Finish the current concatenation into an intersection (in response to a '&').
          * Mirrors AddAlternate for '|', but folds into the _intersection layer
          * (precedence: concatenation > & > |). BREX surface operator (#2979).
+         *
+         * BREX (#2979): the ordinary-char scan consumes the '&' and routes here directly
+         * via goto ContinueOuterScan, bypassing the post-switch ApplyPendingComplement()/
+         * AddConcatenate() path. So '~A&~B' would otherwise leave _unit=One(A) orphaned
+         * with _pendingComplement=1 still pending, folding an EMPTY concatenation member.
+         * Flush the pending complement and fold _unit into _concatenation FIRST, so the
+         * wrapped operand joins the intersection instead of being lost.
          */
         internal void AddIntersection() {
+            ApplyPendingComplement();
+            if (_unit != null)
+                AddConcatenate();
             _intersection.AddChild(_concatenation.ReverseLeft());
             _concatenation = new RegexNode(RegexNode.Concatenate, _options);
         }
