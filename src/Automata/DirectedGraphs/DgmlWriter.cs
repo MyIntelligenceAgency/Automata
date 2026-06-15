@@ -106,19 +106,26 @@ namespace Microsoft.Automata.DirectedGraphs
         //    #endregion
         //}
 
+        // Marshal.GetActiveObject (attach to a running VS instance) was removed in .NET Core/.NET 5+.
+        // Live VS graph display is a Framework-only convenience; the catch below leaves VS = null and
+        // ShowGraph/SaveGraph then no-op the VS-attach step (they still write the .dgml file).
+        static object GetActiveObjectCompat(string progId) =>
+            throw new System.Runtime.InteropServices.COMException(
+                $"GetActiveObject('{progId}') is not supported on .NET 8 (VS attach was a Framework-only feature).");
+
         static void TryLoadVS()
         {
             try
             {
                 //first try to access VS 2015
-                VS = System.Runtime.InteropServices.Marshal.GetActiveObject("VisualStudio.DTE.14.0");
+                VS = GetActiveObjectCompat("VisualStudio.DTE.14.0");
             }
             catch (Exception)
             {
                 try
                 {
                     //second try tom access VS 2017
-                    VS = System.Runtime.InteropServices.Marshal.GetActiveObject("VisualStudio.DTE.15.0");
+                    VS = GetActiveObjectCompat("VisualStudio.DTE.15.0");
                 }
                 catch (Exception)
                 {
