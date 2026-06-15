@@ -67,11 +67,35 @@ namespace Microsoft.Automata.Rex
         //}
 
         /// <summary>
-        /// Generates a random member accepted by fa. 
+        /// Generates a random member accepted by fa.
         /// Assumes that fa has no dead states, or else termination is not guaranteed.
         /// </summary>
+        /// <exception cref="System.ArgumentException">
+        /// Thrown if <paramref name="fa"/> was built with a different CharSetSolver than
+        /// this engine's solver. The BDD terminals in fa's move labels belong to fa's
+        /// algebra; descending them against this solver's True/False terminals (distinct
+        /// object identities) never reaches the terminal branch, dereferences a null
+        /// child, and throws a cryptic NullReferenceException in BDDAlgebra.Choose.
+        /// Guard converts that into a clear, actionable error. (#2979 Step 4)
+        /// Build fa with this engine's solver: either pass it to
+        /// <see cref="CreateFromRegexes(string[])"/> / <see cref="CreateFromRegexes(RegexOptions, string[])"/>,
+        /// or construct the engine via the internal <c>RexEngine(CharSetSolver)</c> ctor
+        /// sharing your solver, or use <see cref="Solver"/> to build fa.
+        /// </exception>
         public string GenerateMember(Automaton<BDD> fa)
         {
+            // Algebra-identity guard (#2979 Step 4): BDD descent in solver.Choose
+            // compares move labels against solver.True/False. If fa was built with a
+            // different CharSetSolver, the label BDDs share no terminal identity with
+            // this solver and the descent null-dereferences. Fail loudly instead.
+            if (!Object.ReferenceEquals(fa.Algebra, this.solver))
+                throw new System.ArgumentException(
+                    "RexEngine.GenerateMember: the automaton was built with a different " +
+                    "CharSetSolver than this engine. BDD descent requires a shared algebra. " +
+                    "Build the automaton via engine.CreateFromRegexes(...) or engine.Solver, " +
+                    "or construct the engine via the RexEngine(CharSetSolver) ctor.",
+                    nameof(fa));
+
             var sb = new System.Text.StringBuilder();
             int state = fa.InitialState;
             while (!fa.IsFinalState(state) || (fa.OutDegree(state) > 0 && chooser.ChooseTrueOrFalse()))
