@@ -84,6 +84,9 @@ namespace Microsoft.Automata
                 case RegexNode.Intersect:
                     // BREX surface operator '&' (#2979) -> SMT-LIB re.inter (string theory).
                     { ConvertNodeIntersect(node); return; }
+                case RegexNode.Complement:
+                    // BREX surface operator '~' (#2979) -> SMT-LIB re.comp (string theory complement).
+                    { ConvertNodeComplement(node); return; }
                 case RegexNode.Empty:
                     { ConvertNodeEmpty(node); return; }
                 case RegexNode.End:
@@ -388,6 +391,26 @@ namespace Microsoft.Automata
                 for (int i = 0; i < children.Count - 1; i++)
                     Write(")");
             }
+        }
+
+        /// <summary>
+        /// BREX surface complement operator '~' (#2979) -> SMT-LIB (re.comp R).
+        /// Unary wrapper: emits the single child's regex wrapped in re.comp (the SMT-LIB
+        /// string-theory complement operator, distinct from the bv-level bvnot). The parser
+        /// produces exactly one child per '~', so this is a straight one-arg wrap.
+        /// </summary>
+        private void ConvertNodeComplement(RegexNode node)
+        {
+            var children = node._children;
+            if (children == null || children.Count == 0)
+            {
+                // complement of the empty regex is the universal language: re.allchar star.
+                Write("(re.star (re.allchar ))");
+                return;
+            }
+            Write("(re.comp ");
+            ConvertNode(children[0]);
+            Write(")");
         }
 
         #region SMT specific escaping

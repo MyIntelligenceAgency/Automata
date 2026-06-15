@@ -26,6 +26,8 @@ namespace System.Text.RegularExpressions {
         internal RegexNode _intersection;   // BREX & layer (#2979); precedence: concat > & > |
         internal RegexNode _concatenation;
         internal RegexNode _unit;
+        internal int _pendingComplement;    // BREX ~ prefix count (#2979): wraps the next unit in Complement nodes
+        internal Stack<int> _complementStack; // BREX (#2979): saves _pendingComplement across ( ) groups
 
         internal String _pattern;
         internal int _currentPos;
@@ -192,6 +194,7 @@ namespace System.Text.RegularExpressions {
         private RegexParser(CultureInfo culture) {
             _culture = culture;
             _optionsStack = new List<RegexOptions>();
+            _complementStack = new Stack<int>();
 #if SILVERLIGHT
             _caps = new Dictionary<Int32,Int32>();
 #else
@@ -217,6 +220,7 @@ namespace System.Text.RegularExpressions {
             _currentPos = 0;
             _autocap = 1;
             _ignoreNextParen = false;
+            _pendingComplement = 0;
 
             if (_optionsStack.Count > 0)
                 _optionsStack.RemoveRange(0, _optionsStack.Count - 1);
@@ -242,9 +246,25 @@ namespace System.Text.RegularExpressions {
 
                 int startpos = Textpos();
 
-                // move past all of the normal characters.  We'll stop when we hit some kind of control character, 
-                // or if IgnorePatternWhiteSpace is on, we'll stop when we see some whitespace. 
-                if (UseOptionX())
+                // move past all of the normal characters.  We'll stop when we hit some kind of control character,
+                // or if IgnorePatternWhiteSpace is on, we'll stop when we see some whitespace.
+                // BREX (#2979): when a '~' prefix is pending, complement binds tighter than concatenation,
+                // so '~AB' parses as (~A)B -- only the FIRST ordinary char is wrapped, the rest of the
+                // run is left for the next iteration. Limit the ordinary-char run to a single char.
+                if (_pendingComplement > 0)
+                {
+                    if (UseOptionX())
+                    {
+                        if (CharsRight() > 0 && (!IsStopperX(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
+                            MoveRight();
+                    }
+                    else
+                    {
+                        if (CharsRight() > 0 && (!IsSpecial(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
+                            MoveRight();
+                    }
+                }
+                else if (UseOptionX())
                     while (CharsRight() > 0 && (!IsStopperX(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
                         MoveRight();
                 else
@@ -277,9 +297,28 @@ namespace System.Text.RegularExpressions {
 
                 switch (ch) {
                     case '!':
+                        // BREX (#2979): if a '~' prefix wrapped its final unit but the pattern ends
+                        // right there (e.g. '~A'), the ordinary-char scan set _unit without ever
+                        // reaching the post-switch ApplyPendingComplement()/AddConcatenate() path
+                        // (this case short-circuits to BreakOuterScan). Flush the pending complement
+                        // and fold _unit into _concatenation before ending, so '~A' yields
+                        // Complement(One A) instead of dropping the operand.
+                        if (_pendingComplement > 0)
+                        {
+                            ApplyPendingComplement();
+                            if (_unit != null)
+                                AddConcatenate();
+                        }
                         goto BreakOuterScan;
 
                     case ' ':
+                        // BREX (#2979): a '~' prefix is pending and has just routed a single ordinary
+                        // char into _unit (see AddConcatenate above). Fall through to the post-switch
+                        // ApplyPendingComplement() + AddConcatenate() path so the char gets wrapped in
+                        // its Complement node before joining _concatenation. Without this, the ordinary-
+                        // char goto ContinueOuterScan would skip the wrapping entirely.
+                        if (_pendingComplement > 0)
+                            break;
                         goto ContinueOuterScan;
 
                     case '[':
@@ -309,6 +348,15 @@ namespace System.Text.RegularExpressions {
                         // BREX surface intersection operator (#2979). Distinct from the
                         // [a-z&&...] char-class intersection handled by ScanCharClass.
                         AddIntersection();
+                        goto ContinueOuterScan;
+
+                    case '~':
+                        // BREX surface complement operator (#2979). Unary prefix: ~A wraps
+                        // the next unit in a Complement node. Multiple '~' stack (~~A == A).
+                        // The wrapping happens in ApplyPendingComplement() just before the
+                        // unit is concatenated, so '~' composes with any unit (literal, set,
+                        // group, '.', etc.) and with quantifiers normally.
+                        _pendingComplement += 1;
                         goto ContinueOuterScan;
 
                     case ')':
@@ -358,6 +406,11 @@ namespace System.Text.RegularExpressions {
                 }
 
                 ScanBlank();
+
+                // BREX: wrap the freshly-built unit in any pending complement(s) BEFORE
+                // the quantifier check, so '~A*' parses as (~A)* (complement binds
+                // tighter than quantifiers). Pending complements are consumed here.
+                ApplyPendingComplement();
 
                 if (CharsRight() == 0 || !(isQuantifier = IsTrueQuantifier())) {
                     AddConcatenate();
@@ -1821,6 +1874,13 @@ namespace System.Text.RegularExpressions {
          * Returns true for those characters that terminate a string of ordinary chars.
          */
         internal static bool IsSpecial(char ch) {
+            // BREX surface complement '~' (#2979): '~' (0x7E) is above '|' (0x7C),
+            // the upstream guard ceiling. Rather than widen the global guard (which
+            // would also make '}' special and perturb paths we don't own), treat
+            // '~' as an explicit special-case here. '~' keeps category 0 in the
+            // table, so IsQuantifier/IsStopperX/IsMetachar are unaffected.
+            if (ch == '~')
+                return true;
             return(ch <= '|' && _category[ch] >= S);
         }
 
@@ -1888,8 +1948,8 @@ namespace System.Text.RegularExpressions {
                 if (UseOptionI() && !isReplacement) {
                     // We do the ToLower character by character for consistency.  With surrogate chars, doing
                     // a ToLower on the entire string could actually change the surrogate pair.  This is more correct
-                    // linguistically, but since Regex doesn't support surrogates, it's more important to be 
-                    // consistent. 
+                    // linguistically, but since Regex doesn't support surrogates, it's more important to be
+                    // consistent.
                     StringBuilder sb = new StringBuilder(str.Length);
                     for (int i=0; i<str.Length; i++)
                         sb.Append(Char.ToLower(str[i], _culture));
@@ -1903,6 +1963,18 @@ namespace System.Text.RegularExpressions {
 
                 if (UseOptionI() && !isReplacement)
                     ch = Char.ToLower(ch, _culture);
+
+                // BREX (#2979): when a '~' prefix is pending, route a single ordinary char into
+                // _unit (instead of appending it directly to _concatenation) so that
+                // ApplyPendingComplement() can wrap it in a Complement node. This keeps '~A'
+                // producing Complement(One A) rather than a bare One A in the concatenation.
+                // The ordinary-char scan loop above limits the run to one char when a complement
+                // is pending, so this branch is reached with cch==1 exactly for the char to wrap.
+                if (_pendingComplement > 0 && !isReplacement)
+                {
+                    _unit = new RegexNode(RegexNode.One, _options, ch);
+                    return;
+                }
 
                 node = new RegexNode(RegexNode.One, _options, ch);
             }
@@ -1919,6 +1991,10 @@ namespace System.Text.RegularExpressions {
             _intersection._next = _alternation;
             _concatenation._next = _intersection;
             _stack = _concatenation;
+            // BREX (#2979): save the pending complement count across the group so that
+            // '~(AB)' wraps the whole group in one Complement, not just the first char.
+            _complementStack.Push(_pendingComplement);
+            _pendingComplement = 0;
         }
 
         /*
@@ -1930,6 +2006,9 @@ namespace System.Text.RegularExpressions {
             _alternation = _intersection._next;
             _group = _alternation._next;
             _stack = _group._next;
+            // BREX (#2979): restore the pending complement count that was active when
+            // the group was opened, so the outer '~' wraps the freshly-closed group.
+            _pendingComplement = _complementStack.Pop();
 
             // The first () inside a Testgroup group goes directly to the group
             if (_group.Type() == RegexNode.Testgroup && _group.ChildCount() == 0) {
@@ -1991,6 +2070,24 @@ namespace System.Text.RegularExpressions {
         internal void AddIntersection() {
             _intersection.AddChild(_concatenation.ReverseLeft());
             _concatenation = new RegexNode(RegexNode.Concatenate, _options);
+        }
+
+        /*
+         * Wrap the current unit in _pendingComplement Complement nodes and reset
+         * the counter (BREX surface '~', #2979). Called once per unit, just before
+         * the quantifier check, so '~A' -> Complement(One A) and '~~A' -> A.
+         * A no-op (count 0) leaves _unit untouched -- the legacy byte-identical path.
+         */
+        internal void ApplyPendingComplement() {
+            if (_pendingComplement == 0 || _unit == null)
+                return;
+
+            while (_pendingComplement > 0) {
+                var comp = new RegexNode(RegexNode.Complement, _options);
+                comp.AddChild(_unit);
+                _unit = comp;
+                _pendingComplement -= 1;
+            }
         }
 
         /*

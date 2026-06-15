@@ -169,6 +169,99 @@ namespace Automata.Tests
                 "'&' inside [a-z&] is a class member, not the intersection operator");
         }
 
+        // -------------------------------------------------------------------------
+        // Step 2.5 coverage: the '~' (complement) prefix operator.
+        // ~ binds tighter than quantifiers and concatenation, so ~A wraps the very
+        // next unit in a Complement node. ~ ~ A stacks (double negation = identity
+        // at the algebra level, two Complement nodes at the parse level).
+        // -------------------------------------------------------------------------
+
+        /// <summary>
+        /// "~A" must produce a Complement node wrapping a single-char One node.
+        /// </summary>
+        [TestMethod]
+        public void Complement_Prefix_ProducesComplementNode()
+        {
+            var root = Parse("~A");
+
+            var comp = FindNode(root, RegexNode.Complement);
+            Assert.IsNotNull(comp, "Pattern '~A' must produce a Complement node");
+            Assert.AreEqual(1, comp.ChildCount(), "Complement wraps exactly one operand");
+            Assert.AreEqual(RegexNode.One, comp.Child(0).Type());
+            Assert.AreEqual('A', comp.Child(0)._ch);
+        }
+
+        /// <summary>
+        /// "~~A" must produce nested Complement nodes (two levels). The parser does
+        /// not algebraically simplify double negation -- that is the solver's job.
+        /// </summary>
+        [TestMethod]
+        public void Complement_DoubleNegation_TwoNestedNodes()
+        {
+            var root = Parse("~~A");
+
+            Assert.AreEqual(2, CountNodes(root, RegexNode.Complement),
+                "~~A must yield two nested Complement nodes (no algebraic simplification)");
+        }
+
+        /// <summary>
+        /// Complement binds tighter than concatenation: "~AB" must parse as
+        /// (~A)B -- only A is complemented, B follows as an ordinary concat member.
+        /// </summary>
+        [TestMethod]
+        public void Complement_Precedence_BindsTighterThanConcat()
+        {
+            var root = Parse("~AB");
+
+            Assert.AreEqual(1, CountNodes(root, RegexNode.Complement),
+                "~AB must complement only A, not the whole AB run");
+            var comp = FindNode(root, RegexNode.Complement);
+            Assert.IsNotNull(comp);
+            Assert.AreEqual(RegexNode.One, comp.Child(0).Type());
+            Assert.AreEqual('A', comp.Child(0)._ch);
+        }
+
+        /// <summary>
+        /// "~(AB)" -- explicit grouping: the complement wraps the whole group.
+        /// </summary>
+        [TestMethod]
+        public void Complement_WrapsGroup()
+        {
+            var root = Parse("~(AB)");
+
+            Assert.AreEqual(1, CountNodes(root, RegexNode.Complement),
+                "~(AB) must yield exactly one Complement node over the group");
+        }
+
+        /// <summary>
+        /// "~A & ~B" combines complement and intersection: two Complement nodes
+        /// joined by one Intersect. This is the A & ~B witness-generation form
+        /// central to the #2979 payoff.
+        /// </summary>
+        [TestMethod]
+        public void Complement_CombinedWithIntersection()
+        {
+            var root = Parse("~A&~B");
+
+            Assert.AreEqual(2, CountNodes(root, RegexNode.Complement),
+                "~A&~B must yield two Complement nodes");
+            Assert.AreEqual(1, CountNodes(root, RegexNode.Intersect),
+                "~A&~B must yield one Intersect node joining them");
+        }
+
+        /// <summary>
+        /// Anti-regression: a plain pattern with no '~' must emit zero Complement
+        /// nodes (byte-identical to upstream when '~' is absent).
+        /// </summary>
+        [TestMethod]
+        public void Legacy_NoComplement_NoComplementNode()
+        {
+            Assert.AreEqual(0, CountNodes(Parse("abc"), RegexNode.Complement),
+                "Plain 'abc' must not produce any Complement node");
+            Assert.AreEqual(0, CountNodes(Parse("a|b|c"), RegexNode.Complement),
+                "Plain 'a|b|c' must not produce any Complement node");
+        }
+
         // ---------------------------------------------------------------------------
         // Step 3 coverage: the '&' parser node now flows through the converters.
         // RegexToAutomatonConverter.Intersect (-> Automaton<BDD>.Intersect) must
@@ -245,6 +338,71 @@ namespace Automata.Tests
             // And the two must have the same minimized DFA shape (same state count).
             Assert.AreEqual(viaApi.StateCount, viaSyntax.StateCount,
                 "Surface '&' and BREX.MkAnd must yield DFA-equivalent state counts");
+        }
+
+        // ---------------------------------------------------------------------------
+        // Step 3.5 coverage: the '~' parser node now flows through the converters.
+        // RegexToAutomatonConverter.Complement (-> Automaton<BDD>.Complement) must
+        // produce the same automaton as the existing BREX.MkNot path. This is the
+        // end-to-end proof that surface '~' == the algebra-level complement.
+        // ---------------------------------------------------------------------------
+
+        /// <summary>
+        /// The surface '~' parser node, routed through the patched converter, must
+        /// produce an automaton equal to the explicit algebra-level complement
+        /// (Automaton&lt;BDD&gt;.Complement over the same operand). This is the Step 3.5
+        /// end-to-end proof: surface syntax and programmatic algebra agree. If the
+        /// converter fell through to the default 'UnrecognizedRegex' throw, Convert()
+        /// would fail before the assertion. Complement is over BV7 (128 chars), so
+        /// '~a' = all chars except 'a'.
+        /// </summary>
+        [TestMethod]
+        public void Complement_Convert_EqualsAlgebraComplement()
+        {
+            var solver = new CharSetSolver(BitWidth.BV7);
+            var operand = Convert(solver, "[ab]");
+            var viaSyntax = Convert(solver, "~[ab]");   // surface '~' (parser + converter)
+            var viaAlgebra = operand.Complement().Determinize().Minimize();
+
+            Assert.IsTrue(viaSyntax.IsEquivalentWith(viaAlgebra),
+                "Surface '~' must produce the same automaton as explicit Automaton<BDD>.Complement");
+        }
+
+        /// <summary>
+        /// Double negation cancels: '~~[ab]' must equal '[ab]' as a minimized DFA.
+        /// This exercises ApplyPendingComplement's stacking (~~A == A) end-to-end
+        /// through the converter (two nested Complement calls).
+        /// </summary>
+        [TestMethod]
+        public void Complement_DoubleNegation_ConvertCancels()
+        {
+            var solver = new CharSetSolver(BitWidth.BV7);
+            var viaSyntax = Convert(solver, "~~[ab]");
+            var operand = Convert(solver, "[ab]");
+
+            Assert.IsTrue(viaSyntax.IsEquivalentWith(operand),
+                "~~[ab] must equal [ab]: double complement cancels end-to-end");
+        }
+
+        /// <summary>
+        /// The headline witness-generation form 'A &amp; ~B': surface syntax must agree
+        /// with the algebra-level (A.Intersect(B.Complement())). This is the construct
+        /// the #2979 epic unlocks for generating test inputs (strings matching A but
+        /// not B). Proves '~' and '&amp;' compose correctly through the converter.
+        /// </summary>
+        [TestMethod]
+        public void Complement_IntersectionWithComplement_EqualsAlgebra()
+        {
+            var solver = new CharSetSolver(BitWidth.BV7);
+            var a = Convert(solver, "[a-c]");
+            var b = Convert(solver, "[b-d]");
+            var viaSyntax = Convert(solver, "[a-c]&~[b-d]");
+            var viaAlgebra = a.Intersect(b.Complement()).Determinize().Minimize();
+
+            Assert.IsTrue(viaSyntax.IsEquivalentWith(viaAlgebra),
+                "Surface 'A&~B' must equal A.Intersect(B.Complement()) end-to-end");
+            // Sanity: [a-c] minus [b-d] = { 'a' } -- a non-empty, single-char language.
+            Assert.IsFalse(viaSyntax.IsEmpty, "[a-c]&~[b-d] must be non-empty (it is {'a'})");
         }
     }
 }

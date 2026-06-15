@@ -323,6 +323,13 @@ namespace Microsoft.Automata
                     // (Automaton.cs:1552 -> MkProduct), so no explicit solver argument is needed.
                     // Left fold: ((a & b) & c) -- automaton intersection is associative.
                     return ConvertNodeIntersect(node);
+                case RegexNode.Complement:
+                    // BREX surface operator '~' (#2979). Unary: complement the single child's language.
+                    // Complement() is an instance method over the internal boolean algebra
+                    // (Automaton.cs:1541 -> MkDifference(MkFull, this)). A Complement node always
+                    // has exactly one child (the parser wraps one unit per '~'); ChildCount() != 1
+                    // is defensive and falls back to complementing the empty language.
+                    return ConvertNodeComplement(node);
                 case RegexNode.Prevent:
                     throw new AutomataException("Regex construct not supported: prevent constructs (?!) (?<!)");
                 case RegexNode.Require:
@@ -354,6 +361,21 @@ namespace Microsoft.Automata
             for (int i = 1; i < node.ChildCount(); i++)
                 result = result.Intersect(ConvertNode(node.Child(i)));
             return result;
+        }
+
+        /// <summary>
+        /// BREX surface complement operator '~' (#2979). Unary: complement the single child's
+        /// language via Automaton&lt;S&gt;.Complement (Automaton.cs:1541 -&gt; MkDifference(MkFull, this)).
+        /// The parser wraps exactly one unit per '~' (ApplyPendingComplement in RegexParser), so
+        /// ChildCount() == 1 is the only case that ever occurs in a tree produced by the patched
+        /// parser. Complementing an empty child list is not meaningful; we treat it as the complement
+        /// of the empty language (i.e. the full language) for totality.
+        /// </summary>
+        private Automaton<S> ConvertNodeComplement(RegexNode node)
+        {
+            if (node.ChildCount() == 0)
+                return automBuilder.MkEmptyAutomaton().Complement();
+            return ConvertNode(node.Child(0)).Complement();
         }
 
         #region Character sequences
