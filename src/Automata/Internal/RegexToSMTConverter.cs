@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,6 +13,20 @@ namespace Microsoft.Automata
     /// (<see cref="ConvertRegex(string)"/>, <see cref="ConvertSeq(string)"/>) and the
     /// underlying <see cref="Solver"/> accessor; making the type public exposes no
     /// mutating or otherwise unsafe operation.
+    ///
+    /// <para><b>Dialect (modernized, #2979).</b> The emitter targets <b>SMT-LIB 2.6
+    /// string theory</b> — the dialect modern solvers (Z3 4.x) actually consume — so
+    /// the output is directly solvable: wrap it in
+    /// <c>(declare-const w String) (assert (str.in_re w R)) (check-sat) (get-model)</c>.
+    /// Characters are emitted as single-character <b>string literals</b> (<c>"a"</c>,
+    /// or <c>"\u{XX}"</c> for non-printables), not as the historical Rex bit-vector
+    /// encoding (<c>#b1100001</c>). Operators use the standard names:
+    /// <c>str.to_re</c>, <c>re.range</c>, <c>re.union</c>, <c>re.++</c>, <c>re.*</c>,
+    /// <c>re.+</c>, <c>re.opt</c>, <c>(_ re.loop m n)</c>, <c>re.none</c>,
+    /// <c>re.allchar</c>, and — for the surface <c>&amp;</c>/<c>~</c> operators —
+    /// <c>re.inter</c> / <c>re.comp</c>. Membership in <c>str.in_re</c> is a
+    /// <b>full match</b>, which is the natural anchored reading of a witness query
+    /// (so an unanchored <c>^</c>/<c>$</c> maps to the neutral empty-string regex).</para>
     /// </summary>
     public class RegexToSMTConverter
     {
@@ -26,24 +40,18 @@ namespace Microsoft.Automata
             automConverter = css.RegexConverter;
             maxChar = (encoding == BitWidth.BV16 ? '\uFFFF' :
                 (encoding == BitWidth.BV8 ? '\u00FF' : '\u007F'));
-            CHAR = string.Format("(_ BitVec {0})", (int)encoding);
         }
 
+        // Backward-compatible overload: the char-sort alias is unused in the modern
+        // SMT-LIB 2.6 string dialect (characters are emitted as single-char String
+        // literals, so no (RegEx <sort>) annotation is needed). Kept for callers/tests.
         public RegexToSMTConverter(BitWidth encoding, string charSortAlias)
+            : this(encoding)
         {
-            css = new CharSetSolver(encoding);
-            automConverter = css.RegexConverter;
-            maxChar = (encoding == BitWidth.BV16 ? '\uFFFF' :
-                (encoding == BitWidth.BV8 ? '\u00FF' : '\u007F'));
-            CHAR = charSortAlias;
         }
-
-        string CHAR;
-
-        Action<string> Write; 
 
         /// <summary>
-        /// Convert a .Net regex to equivalent SMT lib format expression as a string
+        /// Convert a .Net regex to an equivalent SMT-LIB 2.6 string-theory regex expression.
         /// </summary>
         /// <param name="regex">the given .NET regex pattern</param>
         public string ConvertRegex(string regex)
@@ -57,23 +65,16 @@ namespace Microsoft.Automata
             return res;
         }
 
+        Action<string> Write;
+
         /// <summary>
-        /// Convert a string to equivalent SMT lib format expression as a sequence of characters.
+        /// Convert a string to an SMT-LIB 2.6 String literal (the modern equivalent of a
+        /// character sequence), with proper escaping of quotes and non-printable chars.
         /// </summary>
         /// <param name="seq">given string that denotes a sequence of characters</param>
         public string ConvertSeq(string seq)
         {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < seq.Length; i++)
-            {
-                sb.Append("(seq-cons ");
-                sb.Append(EscapeCharSMT(seq[i]));
-                sb.Append(" ");
-            }
-            sb.Append(string.Format("(as seq-empty (Seq {0}))", CHAR));
-            for (int i = 0; i < seq.Length; i++)
-                sb.Append(")");
-            return sb.ToString();
+            return StringLitSMT(seq);
         }
 
         private void ConvertNode(RegexNode node)
@@ -146,19 +147,19 @@ namespace Microsoft.Automata
         {
             string res = "";
             if (ranges.Count == 0)
-                res = string.Format("(as re-empty-set (RegEx {0}))", CHAR);
-            if (ranges.Count == 1)
-                res = string.Format("(re-range {0} {1})", EscapeCharSMT((char)ranges[0].Item1), EscapeCharSMT((char)ranges[0].Item2));
+                res = "re.none";
+            else if (ranges.Count == 1)
+                res = OneRange(ranges[0].Item1, ranges[0].Item2);
             else
             {
                 for (int i = 0; i < ranges.Count; i++)
                 {
                     if (i < ranges.Count - 1)
-                        res += "(re-union ";
+                        res += "(re.union ";
                     else
                         res += " ";
 
-                    res += string.Format("(re-range {0} {1})", EscapeCharSMT((char)ranges[i].Item1), EscapeCharSMT((char)ranges[i].Item2));
+                    res += OneRange(ranges[i].Item1, ranges[i].Item2);
                 }
                 for (int i = 0; i < ranges.Count - 1; i++)
                     res += ")";
@@ -166,21 +167,26 @@ namespace Microsoft.Automata
             return res;
         }
 
+        // A single character range. A singleton {c} is emitted as (str.to_re "c");
+        // a proper range [lo-hi] as (re.range "lo" "hi").
+        private string OneRange(uint lo, uint hi)
+        {
+            if (lo == hi)
+                return string.Format("(str.to_re {0})", EscapeCharSMT((char)lo));
+            return string.Format("(re.range {0} {1})", EscapeCharSMT((char)lo), EscapeCharSMT((char)hi));
+        }
+
         //loop with a singleton set
         private void ConvertNodeOneloop(RegexNode node)
         {
-            //TBD:ignore case
-            //bool ignoreCase = ((node._options & RegexOptions.IgnoreCase) != 0);
             char c = node._ch;
-            string cond = string.Format("(re-range {0} {0})", EscapeCharSMT(c));
+            string cond = string.Format("(str.to_re {0})", EscapeCharSMT(c));
             WriteLoop(cond, node._m, node._n);
         }
 
         //loop with a negated singleton set
         private void ConvertNodeNotoneloop(RegexNode node)
         {
-            //TBD:ignore case
-            //bool ignoreCase = ((node._options & RegexOptions.IgnoreCase) != 0);
             char c = node._ch;
             string cond = NegateSingletonSet(c);
             WriteLoop(cond, node._m, node._n);
@@ -190,14 +196,14 @@ namespace Microsoft.Automata
         {
             string cond = "";
             if (c == '\0')
-                cond = string.Format("(re-range {0} {1})", EscapeCharSMT('\u0001'), EscapeCharSMT(maxChar));
+                cond = string.Format("(re.range {0} {1})", EscapeCharSMT('\u0001'), EscapeCharSMT(maxChar));
             else if (c == maxChar)
-                cond = string.Format("(re-range {0} {1})", EscapeCharSMT('\0'), EscapeCharSMT((char)(((int)maxChar) - 1)));
+                cond = string.Format("(re.range {0} {1})", EscapeCharSMT('\0'), EscapeCharSMT((char)(((int)maxChar) - 1)));
             else
             {
-                string r1 = string.Format("(re-range {0} {1})", EscapeCharSMT('\0'), EscapeCharSMT((char)(((int)c) - 1)));
-                string r2 = string.Format("(re-range {0} {1})", EscapeCharSMT((char)(((int)c) + 1)), EscapeCharSMT(maxChar));
-                cond = string.Format("(re-union {0} {1})", r1, r2);
+                string r1 = string.Format("(re.range {0} {1})", EscapeCharSMT('\0'), EscapeCharSMT((char)(((int)c) - 1)));
+                string r2 = string.Format("(re.range {0} {1})", EscapeCharSMT((char)(((int)c) + 1)), EscapeCharSMT(maxChar));
+                cond = string.Format("(re.union {0} {1})", r1, r2);
             }
             return cond;
         }
@@ -207,34 +213,30 @@ namespace Microsoft.Automata
             if (m == 1 && n == 1)                             //case: r{1,1} = r
                 Write(cond);
             else if (m == 0 && n == 1)                        //case: ?
-                Write(string.Format("(re-option {0})",cond));
+                Write(string.Format("(re.opt {0})", cond));
             else if (m == 0 && n == int.MaxValue)             //case: *
-                Write(string.Format("(re-star {0})",cond));
-            else if (m == 1 && n == int.MaxValue)             //case: + 
-                Write(string.Format("(re-plus {0})",cond));
+                Write(string.Format("(re.* {0})", cond));
+            else if (m == 1 && n == int.MaxValue)             //case: +
+                Write(string.Format("(re.+ {0})", cond));
             else if (n == int.MaxValue)                       //case {m,}
-                Write(string.Format("(re-concat ((_ re-loop {0} {0}) {1}) (re-star {1}))", m, cond));
-            else                                              //case {m,n} 
-                Write(string.Format("((_ re-loop {0} {1}) {2})", m, n, cond));
+                Write(string.Format("(re.++ ((_ re.loop {0} {0}) {1}) (re.* {1}))", m, cond));
+            else                                              //case {m,n}
+                Write(string.Format("((_ re.loop {0} {1}) {2})", m, n, cond));
         }
 
         // Matches only node._ch (singleton set)
         private void ConvertNodeOne(RegexNode node)
         {
-            //TBD: ignore case
-            //bool ignoreCase = ((node._options & RegexOptions.IgnoreCase) != 0);
             char c = node._ch;
-            Write(string.Format("(re-range {0} {0})", EscapeCharSMT(c))); 
+            Write(string.Format("(str.to_re {0})", EscapeCharSMT(c)));
         }
 
         //complement of the singleton set
         private void ConvertNodeNotone(RegexNode node)
         {
-            //TBD: ignore case
-            //bool ignoreCase = ((node._options & RegexOptions.IgnoreCase) != 0);
             char c = node._ch;
             string cond = NegateSingletonSet(c);
-            Write(cond); 
+            Write(cond);
         }
 
         //explicit string as a regex
@@ -242,11 +244,7 @@ namespace Microsoft.Automata
         {
             //given sequence of characters
             string sequence = node._str;
-            int count = sequence.Length;
-
-            //TBD:
-            //bool ignoreCase = ((node._options & RegexOptions.IgnoreCase) != 0);
-            Write(string.Format("(re-of-seq {0})", ConvertSeq(sequence))); 
+            Write(string.Format("(str.to_re {0})", StringLitSMT(sequence)));
         }
 
         //loop constructs
@@ -261,62 +259,63 @@ namespace Microsoft.Automata
             }
             else if (m == 0 && n == 1) //case: ?
             {
-                Write("(re-option ");
+                Write("(re.opt ");
                 ConvertNode(child);
                 Write(")");
             }
             else if (m == 0 && n == int.MaxValue) //case: *
             {
-                Write("(re-star ");
+                Write("(re.* ");
                 ConvertNode(child);
                 Write(")");
             }
-            else if (m == 1 && n == int.MaxValue) //case: + 
+            else if (m == 1 && n == int.MaxValue) //case: +
             {
-                Write("(re-plus ");
+                Write("(re.+ ");
                 ConvertNode(child);
                 Write(")");
             }
             else if (n == int.MaxValue) //case {m,}
             {
-                Write(string.Format("(re-concat ((_ re-loop {0} {0}) ",m));
+                Write(string.Format("(re.++ ((_ re.loop {0} {0}) ", m));
                 ConvertNode(child);
-                Write(") (re-star ");
+                Write(") (re.* ");
                 ConvertNode(child);
                 Write("))");
             }
-            else //general case {m,n} 
+            else //general case {m,n}
             {
-                Write(string.Format("((_ re-loop {0} {1}) ", m, n));
+                Write(string.Format("((_ re.loop {0} {1}) ", m, n));
                 ConvertNode(child);
                 Write(")");
             }
         }
 
-        //end anchors
+        //end anchors — neutral under str.in_re full-match semantics
         private void ConvertNodeEol(RegexNode node)
         {
-            Write(ReEnd);
+            Write(ReEmptySeq);
         }
 
         private void ConvertNodeEndZ(RegexNode node)
         {
-            Write(ReEnd);
+            Write(ReEmptySeq);
         }
 
         private void ConvertNodeEnd(RegexNode node)
         {
-            Write(ReEnd);
+            Write(ReEmptySeq);
         }
 
         //empty regex
         private void ConvertNodeEmpty(RegexNode node)
         {
-            Write(ReEmpty);
+            Write(ReEmptySeq);
         }
 
-        string ReEnd { get { return string.Format("(as re-end (RegEx {0}))", CHAR); } }
-        string ReEmpty { get { return string.Format("(as re-empty-seq (RegEx {0}))", CHAR); } }
+        // (str.to_re "") matches exactly the empty string; it is the identity of re.++,
+        // so begin/end anchors collapse away under full-match str.in_re semantics.
+        string ReEmptySeq { get { return "(str.to_re \"\")"; } }
 
         //concatenation
         private void ConvertNodeConcatenate(RegexNode node)
@@ -328,8 +327,8 @@ namespace Microsoft.Automata
             {
                 for (int i = 0; i < children.Count; i++)
                 {
-                    if (i < children.Count-1)
-                        Write("(re-concat ");
+                    if (i < children.Count - 1)
+                        Write("(re.++ ");
                     else
                         Write(" ");
 
@@ -340,18 +339,16 @@ namespace Microsoft.Automata
             }
         }
 
-        //start anchors
+        //start anchors — neutral under str.in_re full-match semantics
         private void ConvertNodeBol(RegexNode node)
         {
-            Write(ReBegin);
+            Write(ReEmptySeq);
         }
 
         private void ConvertNodeBeginning(RegexNode node)
         {
-            Write(ReBegin);
+            Write(ReEmptySeq);
         }
-
-        string ReBegin { get { return string.Format("(as re-begin (RegEx {0}))", CHAR); } }
 
         //union
         private void ConvertNodeAlternate(RegexNode node)
@@ -364,7 +361,7 @@ namespace Microsoft.Automata
                 for (int i = 0; i < children.Count; i++)
                 {
                     if (i < children.Count - 1)
-                        Write("(re-union ");
+                        Write("(re.union ");
                     else
                         Write(" ");
 
@@ -377,7 +374,7 @@ namespace Microsoft.Automata
 
         /// <summary>
         /// BREX surface intersection operator '&amp;' (#2979) -> SMT-LIB (re.inter ...).
-        /// Mirrors ConvertNodeAlternate's left-fold emit shape, substituting re-union -> re.inter.
+        /// Mirrors ConvertNodeAlternate's left-fold emit shape, substituting re.union -> re.inter.
         /// SMT-LIB string theory has supported re.inter since the 2016 string-theory integration;
         /// the 21-char witness cap (#6) is a solver-side constraint, not a syntax issue.
         /// </summary>
@@ -414,7 +411,7 @@ namespace Microsoft.Automata
             if (children == null || children.Count == 0)
             {
                 // complement of the empty regex is the universal language: re.allchar star.
-                Write("(re.star (re.allchar ))");
+                Write("(re.* (re.allchar))");
                 return;
             }
             Write("(re.comp ");
@@ -422,61 +419,39 @@ namespace Microsoft.Automata
             Write(")");
         }
 
-        #region SMT specific escaping
+        #region SMT-LIB 2.6 string-literal escaping
         /// <summary>
-        /// Escape a character for SMT lib converter.
+        /// Emit a single character as an SMT-LIB 2.6 single-character String literal:
+        /// printable ASCII as-is (<c>"a"</c>), everything else as a unicode escape
+        /// (<c>"\u{XX}"</c>). Quote and backslash are escaped to keep the literal well formed.
         /// </summary>
         string EscapeCharSMT(char c)
         {
-            int code = (int)c;
-            //if (code < 126 && char.IsLetterOrDigit(c))
-            //    return c.ToString();
-            //else
-            if (Solver.Encoding == BitWidth.BV16)
-                return ToBitVectorRepr16(code);
-            else if (Solver.Encoding == BitWidth.BV8)
-                return ToBitVectorRepr8(code);
-            else if (Solver.Encoding == BitWidth.BV7)
-                return ToBitVectorRepr7(code);
-            else
-                throw new NotImplementedException("Character representation not implemented for:" + Solver.Encoding);
+            return StringLitSMT(c.ToString());
         }
 
-        static string ToBitVectorRepr16(int i)
+        /// <summary>
+        /// Emit a .NET string as an SMT-LIB 2.6 String literal. Inside such a literal the
+        /// only quoting rule is that a double quote is doubled (<c>""</c>); we additionally
+        /// emit any character outside printable ASCII (and the backslash) as a <c>\u{XX}</c>
+        /// escape so the result is unambiguous for the Z3 parser.
+        /// </summary>
+        static string StringLitSMT(string s)
         {
-            string s = string.Format("{0:X}", i);
-            if (s.Length == 1)
-                s = "#x000" + s;
-            else if (s.Length == 2)
-                s = "#x00" + s;
-            else if (s.Length == 3)
-                s = "#x0" + s;
-            else
-                s = "#x" + s;
-            return s;
-        }
-
-        static string ToBitVectorRepr8(int i)
-        {
-            string s = string.Format("{0:X}", i);
-            if (s.Length == 1)
-                s = "#x0" + s;
-            else
-                s = "#x" + s;
-            return s;
-        }
-
-        static string ToBitVectorRepr7(int i)
-        {
-            int bit0 = ((i & 1) == 0 ? 0 : 1);
-            int bit1 = ((i & 2) == 0 ? 0 : 1);
-            int bit2 = ((i & 4) == 0 ? 0 : 1);
-            int bit3 = ((i & 8) == 0 ? 0 : 1);
-            int bit4 = ((i & 16) == 0 ? 0 : 1);
-            int bit5 = ((i & 32) == 0 ? 0 : 1);
-            int bit6 = ((i & 64) == 0 ? 0 : 1);
-            string s = string.Format("#b{6}{5}{4}{3}{2}{1}{0}", bit0, bit1, bit2, bit3, bit4, bit5, bit6);
-            return s;
+            var sb = new StringBuilder();
+            sb.Append('"');
+            foreach (char c in s)
+            {
+                int code = (int)c;
+                if (c == '"')
+                    sb.Append("\"\"");                      // doubled quote
+                else if (code >= 0x20 && code <= 0x7e && c != '\\')
+                    sb.Append(c);                           // printable ASCII, verbatim
+                else
+                    sb.AppendFormat("\\u{{{0:x}}}", code);  // \u{hex}
+            }
+            sb.Append('"');
+            return sb.ToString();
         }
         #endregion
     }

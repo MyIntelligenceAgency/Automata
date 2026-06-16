@@ -24,6 +24,79 @@ namespace Microsoft.Automata.Tests
             Console.WriteLine(res);
         }
 
+        // --- Modernized RegexToSMTConverter dialect (#2979) ---------------------------
+        // The converter now emits SMT-LIB 2.6 string theory (str.to_re / re.range /
+        // re.union / re.* / re.+ / re.opt / (_ re.loop m n) / re.inter / re.comp), i.e.
+        // the dialect modern Z3 actually consumes, with characters as single-char String
+        // literals. These tests pin the surface forms; the actual *solvability* of the
+        // output (ParseSMTLIB2String -> witness) is exercised by notebook 06 §7b.
+
+        [TestMethod]
+        public void TestConvertRegexSingleton()
+        {
+            var conv = new RegexToSMTConverter(BitWidth.BV7);
+            Assert.AreEqual<string>("(str.to_re \"a\")", conv.ConvertRegex("a"));
+        }
+
+        [TestMethod]
+        public void TestConvertRegexString()
+        {
+            var conv = new RegexToSMTConverter(BitWidth.BV7);
+            Assert.AreEqual<string>("(str.to_re \"abc\")", conv.ConvertRegex("abc"));
+        }
+
+        [TestMethod]
+        public void TestConvertRegexRange()
+        {
+            var conv = new RegexToSMTConverter(BitWidth.BV7);
+            Assert.AreEqual<string>("(re.range \"b\" \"z\")", conv.ConvertRegex("[b-z]"));
+        }
+
+        [TestMethod]
+        public void TestConvertRegexStarPlusOpt()
+        {
+            var conv = new RegexToSMTConverter(BitWidth.BV7);
+            Assert.AreEqual<string>("(re.* (str.to_re \"a\"))", conv.ConvertRegex("a*"));
+            Assert.AreEqual<string>("(re.+ (str.to_re \"a\"))", conv.ConvertRegex("a+"));
+            Assert.AreEqual<string>("(re.opt (str.to_re \"a\"))", conv.ConvertRegex("a?"));
+        }
+
+        [TestMethod]
+        public void TestConvertRegexLoop()
+        {
+            var conv = new RegexToSMTConverter(BitWidth.BV7);
+            Assert.AreEqual<string>("((_ re.loop 5 9) (str.to_re \"ab\"))", conv.ConvertRegex("(ab){5,9}"));
+        }
+
+        // The #2979 payoff: the fork's surface '&' (intersection) and '~' (complement)
+        // operators map to SMT-LIB re.inter / re.comp.
+        [TestMethod]
+        public void TestConvertRegexIntersectComplement()
+        {
+            var conv = new RegexToSMTConverter(BitWidth.BV7);
+            Assert.AreEqual<string>(
+                "(re.inter (re.range \"a\" \"b\") (re.comp (re.range \"b\" \"c\")))",
+                conv.ConvertRegex("[ab]&~[bc]"));
+        }
+
+        // Regression guard: no legacy Rex tokens (the historical unsolvable dialect)
+        // must leak into the modern output.
+        [TestMethod]
+        public void TestConvertRegexNoLegacyTokens()
+        {
+            var conv = new RegexToSMTConverter(BitWidth.BV7);
+            string res = conv.ConvertRegex("^[A-Za-z0-9]{8}$&~(.*password.*)&~(^[0-9].*$)");
+            foreach (var legacy in new[] { "re-range", "re-union", "re-of-seq", "seq-cons",
+                                           "re-empty-set", "re-star", "re-plus", "re-concat", "#b" })
+            {
+                Assert.IsFalse(res.Contains(legacy),
+                    $"Modern SMT-LIB output must not contain legacy token '{legacy}'. Got: {res}");
+            }
+            // and it must use the modern intersection/complement names
+            StringAssert.Contains(res, "re.inter");
+            StringAssert.Contains(res, "re.comp");
+        }
+
         [TestMethod]
         public void TestSingleton()
         {
