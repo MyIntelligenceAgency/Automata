@@ -226,3 +226,6 @@ pip-log.txt
 #ignore installed nuget packages
 packages/*/
 src/TreeAutomataExperiments/benchmark/NFA/
+
+# Committed deploy DLLs for notebook #r path-loads (#11431, mirror Resharp/.deploy)
+!.deploy/*.dll
