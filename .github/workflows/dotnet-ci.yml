@@ -1,0 +1,34 @@
+name: dotnet-ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Gate bloquant : build de la solution SDK-style (net8.0).
+  # Main.sln (projets .NET Framework 4.x old-style) hors perimetre -- necessiterait
+  # runner Windows + VS Build Tools.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet build Core.sln --configuration Release
+
+  # Etat reel des tests, NON bloquant volontairement : 48/365 en echec au HEAD
+  # (mesure locale Windows 2026-10-02, .NET 9 SDK, 45 s). Ce job rend le signal
+  # visible sur ubuntu ; passage en bloquant apres triage.
+  # Refs jsboige/CoursIA#18768.
+  tests-report:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet test Core.sln --configuration Release
