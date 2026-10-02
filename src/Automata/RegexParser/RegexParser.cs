@@ -27,6 +27,7 @@ namespace System.Text.RegularExpressions {
         internal RegexNode _concatenation;
         internal RegexNode _unit;
         internal int _pendingComplement;    // BREX ~ prefix count (#2979): wraps the next unit in Complement nodes
+        internal bool _brexSurfaceSyntax;   // BREX (#6): '&'/'~' are operators only when true; otherwise ordinary literals
         internal Stack<int> _complementStack; // BREX (#2979): saves _pendingComplement across ( ) groups
 
         internal String _pattern;
@@ -62,11 +63,22 @@ namespace System.Text.RegularExpressions {
          * The method creates, drives, and drops a parser instance.
          */
         internal static RegexTree Parse(String re, RegexOptions op) {
+            return Parse(re, op, false);
+        }
+
+        /// <summary>
+        /// BREX (#6): brexSurfaceSyntax opt-in. When false (default), '&' and '~' are
+        /// ordinary literal characters (.NET-standard semantics) -- patterns like
+        /// 'a&?b' (URL separators) parse as written. When true, the BREX surface
+        /// operators (intersection '&', complement '~') are active.
+        /// </summary>
+        internal static RegexTree Parse(String re, RegexOptions op, bool brexSurfaceSyntax) {
             RegexParser p;
             RegexNode root;
             String[] capnamelist;
 
             p = new RegexParser((op & RegexOptions.CultureInvariant) != 0 ? CultureInfo.InvariantCulture : CultureInfo.CurrentCulture);
+            p._brexSurfaceSyntax = brexSurfaceSyntax;
 
             p._options = op;
 
@@ -230,6 +242,14 @@ namespace System.Text.RegularExpressions {
         }
 
         /*
+         * BREX (#6): '&' and '~' stop an ordinary run (IsSpecial) only under the
+         * brexSurfaceSyntax opt-in. Flag off: they are ordinary literal chars.
+         */
+        private bool IsSpecialWithMode(char ch) {
+            return IsSpecial(ch) && (_brexSurfaceSyntax || (ch != '&' && ch != '~'));
+        }
+
+        /*
          * The main parsing function.
          */
         internal RegexNode ScanRegex() {
@@ -260,7 +280,7 @@ namespace System.Text.RegularExpressions {
                     }
                     else
                     {
-                        if (CharsRight() > 0 && (!IsSpecial(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
+                        if (CharsRight() > 0 && (!IsSpecialWithMode(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
                             MoveRight();
                     }
                 }
@@ -268,7 +288,7 @@ namespace System.Text.RegularExpressions {
                     while (CharsRight() > 0 && (!IsStopperX(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
                         MoveRight();
                 else
-                    while (CharsRight() > 0 && (!IsSpecial(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
+                    while (CharsRight() > 0 && (!IsSpecialWithMode(ch = RightChar()) || ch == '{' && !IsTrueQuantifier()))
                         MoveRight();
 
                 int endpos = Textpos();
@@ -277,7 +297,7 @@ namespace System.Text.RegularExpressions {
 
                 if (CharsRight() == 0)
                     ch = '!'; // nonspecial, means at end
-                else if (IsSpecial(ch = RightChar())) {
+                else if (IsSpecialWithMode(ch = RightChar())) {
                     isQuantifier = IsQuantifier(ch);
                     MoveRight();
                 } else
