@@ -229,3 +229,6 @@ src/TreeAutomataExperiments/benchmark/NFA/
 
 # Committed deploy DLLs for notebook #r path-loads (#11431, mirror Resharp/.deploy)
 !.deploy/*.dll
+
+# BenchmarkDotNet run artifacts
+BenchmarkDotNet.Artifacts/
