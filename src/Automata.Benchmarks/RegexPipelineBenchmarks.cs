@@ -21,12 +21,22 @@ public class RegexPipelineBenchmarks
     private class InProcessShortConfig : ManualConfig
     {
         public InProcessShortConfig()
-            => AddJob(Job.ShortRun
+        {
+            // Multi-runtime (mesure du delta runtime, CoursIA #18771) : meme garde que
+            // AutomatonOpsBench -- InProcess ne peut cibler qu'un runtime par run ; quand
+            // DOTNET_MULTI_RUNTIME=1, on n'ajoute PAS le job InProcess et BDN utilise son
+            // job par defaut (process enfant) avec `--runtimes netX.0`. Le protocole de
+            // reference (BASELINE-net9.0.md) reste le job InProcess ci-dessous.
+            if (Environment.GetEnvironmentVariable("DOTNET_MULTI_RUNTIME") == "1")
+                return;
+
+            AddJob(Job.ShortRun
                 .WithToolchain(InProcessEmitToolchain.Instance)
                 .WithInvocationCount(1)
                 .WithUnrollFactor(1)
                 .WithWarmupCount(5)
                 .WithIterationCount(15));
+        }
     }
 
     private const string Subject = "foofoxxxobaaaazzbarfoofoxxxobaaaazzbar";
