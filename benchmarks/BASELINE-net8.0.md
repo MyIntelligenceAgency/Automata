@@ -87,7 +87,7 @@ dotnet run -c Release -f net8.0 -- --filter '*'
   `a396028`, PR #9) est nécessaire pour compiler depuis un clone hors
   `C:\GitHub\Automata` — 30 directives sur 3 fichiers Templates.
 
-## Limites connues (honnêteté des mesures)
+## Limites connues
 
 - Itérations de 21–72 ms (< 100 ms recommandé par BDN) : la structure est
   volontairement figée et de taille modeste (représentative des carnets
