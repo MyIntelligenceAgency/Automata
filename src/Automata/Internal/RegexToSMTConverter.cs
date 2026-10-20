@@ -56,9 +56,19 @@ namespace Microsoft.Automata
         /// <param name="regex">the given .NET regex pattern</param>
         public string ConvertRegex(string regex)
         {
+            return ConvertRegex(regex, false);
+        }
+
+        /// <summary>
+        /// BREX (#6): brexSurfaceSyntax opt-in converts the pattern with '&'/'~' as
+        /// surface operators (re.inter / re.comp). Default is false: literal
+        /// .NET-standard semantics.
+        /// </summary>
+        public string ConvertRegex(string regex, bool brexSurfaceSyntax)
+        {
             var sb = new StringBuilder();
             this.Write = ((string s) => { sb.Append(s); return; });
-            RegexTree tree = RegexParser.Parse(regex, RegexOptions.None);
+            RegexTree tree = RegexParser.Parse(regex, RegexOptions.None, brexSurfaceSyntax);
             ConvertNode(tree._root);
             string res = sb.ToString();
             Write = null;

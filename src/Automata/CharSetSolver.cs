@@ -698,7 +698,17 @@ namespace Microsoft.Automata
         /// <param name="keepBoundaryStates">used for testing purposes, when true boundary states are not removed, default is false</param>
         public Automaton<BDD> Convert(string regex, System.Text.RegularExpressions.RegexOptions options, bool keepBoundaryStates = false)
         {
-            var res = regexConverter.Convert(regex, options, keepBoundaryStates);
+            return Convert(regex, options, keepBoundaryStates, false);
+        }
+
+        /// <summary>
+        /// BREX (#6): brexSurfaceSyntax opt-in converts the pattern with '&'/'~' as
+        /// surface operators (intersection/complement). Default is false: literal
+        /// .NET-standard semantics.
+        /// </summary>
+        public Automaton<BDD> Convert(string regex, System.Text.RegularExpressions.RegexOptions options, bool keepBoundaryStates, bool brexSurfaceSyntax)
+        {
+            var res = regexConverter.Convert(regex, options, keepBoundaryStates, brexSurfaceSyntax);
             return res;
         }
 
