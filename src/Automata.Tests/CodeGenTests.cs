@@ -13,7 +13,7 @@ namespace Automata.Tests
     [TestClass]
     public class CodeGenTests
     {
-        static string regexesFile = "../../../samples/regexes.txt";
+        static string regexesFile = "../../../Samples/regexes.txt";
         internal static int NrOfStrings = 100;
         internal static int MaxStringLength = 100;
         internal static int Repetitions = 10;
