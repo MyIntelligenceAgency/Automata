@@ -358,52 +358,58 @@ namespace Automata.Tests
         public static void SerializeObjectToFile_bin(string file, object obj)
         {
             IFormatter formatter = new BinaryFormatter();
-            Stream stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
-            formatter.Serialize(stream, obj);
-            stream.Close();
+            using (Stream stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                formatter.Serialize(stream, obj);
+            }
         }
 
         public static void SerializeObjectToFile_soap(string file, object obj)
         {
             IFormatter formatter = new SoapFormatter();
-            Stream stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
-            formatter.Serialize(stream, obj);
-            stream.Close();
+            using (Stream stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                formatter.Serialize(stream, obj);
+            }
         }
 
         public static void SerializeObjectToFile_osf(string file, object obj)
         {
             IFormatter formatter = new System.Web.UI.ObjectStateFormatter();
-            Stream stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
-            formatter.Serialize(stream, obj);
-            stream.Close();
+            using (Stream stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                formatter.Serialize(stream, obj);
+            }
         }
 
         public static object DeserializeObjectFromFile_bin(string file)
         {
             IFormatter formatter = new BinaryFormatter();
-            Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
-            object obj = formatter.Deserialize(stream);
-            stream.Close();
-            return obj;
+            using (Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                object obj = formatter.Deserialize(stream);
+                return obj;
+            }
         }
 
         public static object DeserializeObjectFromFile_soap(string file)
         {
             IFormatter formatter = new SoapFormatter();
-            Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
-            object obj = formatter.Deserialize(stream);
-            stream.Close();
-            return obj;
+            using (Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                object obj = formatter.Deserialize(stream);
+                return obj;
+            }
         }
 
         public static object DeserializeObjectFromFile_osf(string file)
         {
             IFormatter formatter = new System.Web.UI.ObjectStateFormatter();
-            Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
-            object obj = formatter.Deserialize(stream);
-            stream.Close();
-            return obj;
+            using (Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                object obj = formatter.Deserialize(stream);
+                return obj;
+            }
         }
 
         [TestMethod]
