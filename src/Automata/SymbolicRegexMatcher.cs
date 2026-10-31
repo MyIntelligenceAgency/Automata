@@ -133,10 +133,11 @@ namespace Microsoft.Automata
         /// <returns></returns>
         public static RegexMatcher Deserialize(string file, IFormatter formatter = null)
         {
-            Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
-            RegexMatcher matcher = Deserialize(stream, formatter);
-            stream.Close();
-            return matcher;
+            using (Stream stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                RegexMatcher matcher = Deserialize(stream, formatter);
+                return matcher;
+            }
         }
 
         /// <summary>
@@ -273,9 +274,10 @@ namespace Microsoft.Automata
 
         public override void Serialize(string file, IFormatter formatter = null)
         {
-            var stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
-            Serialize(stream, formatter);
-            stream.Close();
+            using (var stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                Serialize(stream, formatter);
+            }
         }
 
         public override void Serialize(Stream stream, IFormatter formatter = null)
@@ -692,9 +694,10 @@ namespace Microsoft.Automata
         /// <param name="formatter">given formatter</param>
         override public void Serialize(string file, IFormatter formatter = null)
         {
-            var stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
-            Serialize(stream, formatter);
-            stream.Close();
+            using (var stream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                Serialize(stream, formatter);
+            }
         }
 
         /// <summary>
