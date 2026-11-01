@@ -96,12 +96,22 @@ namespace Microsoft.Automata
         /// <param name="keepBoundaryStates">used for testing purposes, when true boundary states are not eliminated</param>
         public Automaton<S> Convert(string regex, RegexOptions options, bool keepBoundaryStates)
         {
+            return Convert(regex, options, keepBoundaryStates, false);
+        }
+
+        /// <summary>
+        /// BREX (#6): brexSurfaceSyntax opt-in converts the pattern with '&'/'~' as
+        /// surface operators (intersection/complement). Default is false: literal
+        /// .NET-standard semantics.
+        /// </summary>
+        public Automaton<S> Convert(string regex, RegexOptions options, bool keepBoundaryStates, bool brexSurfaceSyntax)
+        {
             automBuilder.Reset();
             //filter out the RightToLeft option that turns around the parse tree
             //but has no semantical meaning regarding the regex
             var options1 = (options & ~RegexOptions.RightToLeft);
 
-            RegexTree tree = RegexParser.Parse(regex, options1);
+            RegexTree tree = RegexParser.Parse(regex, options1, brexSurfaceSyntax);
             var aut = ConvertNode(tree._root);
             //delay accessing the condition
             Func<bool, S> getWordLetterCondition = (b => categorizer.WordLetterCondition);
