@@ -50,7 +50,10 @@ namespace Automata.Tests
         {
             // RegexParser.Parse is internal; Automata.Tests is granted access via
             // InternalsVisibleTo (AssemblyInfo.cs). Singleline keeps '.' simple.
-            var tree = RegexParser.Parse(pattern, RegexOptions.Singleline);
+            // BREX surface operators (#6): these tests exercise the opt-in surface
+            // syntax, so the 3-arg Parse overload with brexSurfaceSyntax: true.
+            // The default (false) keeps '&'/'~' as ordinary literals (.NET-standard).
+            var tree = RegexParser.Parse(pattern, RegexOptions.Singleline, true);
             return tree._root;
         }
 
@@ -272,7 +275,9 @@ namespace Automata.Tests
         {
             // Single shared solver so cross-automaton IsEquivalentWith passes the
             // CheckIdentityOfAlgebras guard (Automaton.cs:1607).
-            return solver.Convert(pattern, RegexOptions.None).RemoveEpsilons().Determinize().Minimize();
+            // BREX (#6): end-to-end conversion goes through the opt-in overload so
+            // '&amp;'/'~' parse as surface operators in these tests.
+            return solver.Convert(pattern, RegexOptions.None, false, true).RemoveEpsilons().Determinize().Minimize();
         }
 
         /// <summary>

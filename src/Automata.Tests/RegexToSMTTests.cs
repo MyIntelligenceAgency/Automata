@@ -76,7 +76,7 @@ namespace Microsoft.Automata.Tests
             var conv = new RegexToSMTConverter(BitWidth.BV7);
             Assert.AreEqual<string>(
                 "(re.inter (re.range \"a\" \"b\") (re.comp (re.range \"b\" \"c\")))",
-                conv.ConvertRegex("[ab]&~[bc]"));
+                conv.ConvertRegex("[ab]&~[bc]", true));
         }
 
         // Regression guard: no legacy Rex tokens (the historical unsolvable dialect)
@@ -85,7 +85,7 @@ namespace Microsoft.Automata.Tests
         public void TestConvertRegexNoLegacyTokens()
         {
             var conv = new RegexToSMTConverter(BitWidth.BV7);
-            string res = conv.ConvertRegex("^[A-Za-z0-9]{8}$&~(.*password.*)&~(^[0-9].*$)");
+            string res = conv.ConvertRegex("^[A-Za-z0-9]{8}$&~(.*password.*)&~(^[0-9].*$)", true);
             foreach (var legacy in new[] { "re-range", "re-union", "re-of-seq", "seq-cons",
                                            "re-empty-set", "re-star", "re-plus", "re-concat", "#b" })
             {
