@@ -955,7 +955,7 @@ namespace Automata.Tests
 
         void TestMatcher_InternalConsistency_(RegexOptions options)
         {
-            var regexesFile = "../../../../Automata.Tests/Samples/simpl.txt";
+            var regexesFile = "../../../../Automata.Tests/Samples/Simpl.txt";
             var regexes = Array.ConvertAll(File.ReadAllLines(regexesFile), x => new Regex(x, options));
             int k = regexes.Length;
             string badone = null;

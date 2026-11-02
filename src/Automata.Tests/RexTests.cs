@@ -18,7 +18,7 @@ namespace Automata.Tests
     public class RexTests
     {
 
-        static string regexesFile = "../../../samples/regexes.txt";
+        static string regexesFile = "../../../Samples/regexes.txt";
         public RexTests()
         {
             //

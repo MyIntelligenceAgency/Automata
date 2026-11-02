@@ -10,7 +10,7 @@ namespace Automata.Tests
     [TestClass]
     public class StateDistinguisherTests
     {
-        static string regexesFile = "../../../samples/regexes.txt";
+        static string regexesFile = "../../../Samples/regexes.txt";
 
         static string[] hardcases = new string[]
         {
