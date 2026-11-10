@@ -51,6 +51,19 @@ variante de compilateur par TFM. **Les valeurs de ce document ne sont
 comparables ni à celles du 20/10, ni à celles du 29/10** — seulement à
 elles-mêmes.
 
+**Contrôle croisé du même jour — ce document ne fait plus foi sur l'axe
+9 → 10.** Le protocole de référence des sessions du 20/10 et du 29/10 tient la
+compilation constante ; le contrôle croisé
+(`CONTROL-single-build-2026-11-10.md`) rejoue ce banc dans ce protocole — une
+seule compilation `net9.0`, SHA-256
+`150be1f2546eb8e5be4401d83b9860490ede13280230be256d35b535db8b34ee`, jouée sous
+net9.0.22 / net10.0.14 / net11.0.0-rc.3.26522.148, 5 passes entrelacées.
+Résultat : **aucune des 18 paires n'est séparable**, et l'écart 9 → 10 sur
+`Pipeline_ConvertDeterminizeMinimize` tombe de −26,8 % à −14,0 % avec des
+intervalles qui se recouvrent. Le verdict « établi » de ce document sur cet
+axe est **retiré** ; le gain .NET 11 reste non établi et l'axe allocation reste
+le seul axe concluant, négatif — le contrôle confirme ces deux points.
+
 ## Résultats — classe `AutomatonOpsBench` (ms)
 
 Moyennes = médiane des 5 passes ; ± = médiane de l'`Error` BDN intra-passe.
@@ -128,7 +141,10 @@ deux runtimes comparés **ne se recouvrent pas**.
 Critère : deux runtimes sont **séparables** sur un axe si l'intervalle
 [min, max] des 5 moyennes de passes de l'un et celui de l'autre **ne se
 recouvrent pas**. 18 paires ont été testées (6 benchmarks × 3 paires de
-runtimes consécutifs) ; **3 sont séparables** :
+runtimes consécutifs) ; **3 sont séparables** — résultat **retiré** par le
+contrôle croisé du même jour : en compilation constante, **aucune** paire n'est
+séparable (voir `CONTROL-single-build-2026-11-10.md`). Le tableau ci-dessous
+est conservé tel qu'il a été mesuré :
 
 | Benchmark | Paire | Écart | Intervalles |
 | --- | --- | ---: | --- |
@@ -144,6 +160,12 @@ Lecture, sans arrondi favorable :
    −10,9 % de la session du 02/10 sur le même benchmark. Le « rattrapage .NET
    10 » est donc **confirmé sur cet axe**, et son amplitude est plus grande
    que celle du 02/10.
+   **Verdict retiré le jour même** : le contrôle croisé à compilation constante
+   (`CONTROL-single-build-2026-11-10.md`) rejoue le banc dans le protocole de
+   référence et **ne retrouve pas cet écart** (−14,0 %, intervalles qui se
+   recouvrent). L'amplitude publiée était donc, au moins pour partie, un
+   **effet de compilation**. Le point est conservé comme le constat de la
+   session, pas comme un verdict.
 2. **.NET 9 est plus rapide que .NET 8 sur la minimisation Hopcroft**
    (−20,8 %, intervalles disjoints) : donnée **nouvelle** — le banc 3 n'avait
    jamais comparé net8 à net9.
@@ -153,7 +175,7 @@ Lecture, sans arrondi favorable :
    comptée comme établie**.
 4. **Sur la branche 10 → 11, aucune des six paires n'est séparable** : les
    intervalles de .NET 11 et de .NET 10 se recouvrent partout, y compris sur
-   le pipeline symbolique où le gain .NET 10 avait été établi. **Aucun gain
+   le pipeline symbolique où le gain .NET 10 était mesuré. **Aucun gain
    .NET 11 n'est établi sur ce banc**, et aucun écart négatif net n'est établi
    non plus. C'est le résultat que l'EPIC cherche à départager : sur l'API
    publique d'Automata, **le saut 9 → 10 est le seul levier**.
@@ -202,14 +224,33 @@ dotnet exec bin/Release/net10.0/Automata.Benchmarks.dll --filter '*'
 D:/dotnet11/dotnet.exe exec bin/Release/net11.0/Automata.Benchmarks.dll --filter '*'
 ```
 
+## Contrôle croisé du même jour — une seule compilation, trois runtimes
+
+Le contrôle complet (protocole, mesures, lecture) est dans
+`CONTROL-single-build-2026-11-10.md`. En résumé :
+
+| | Session du 11/10 (ce document, une compilation par TFM) | Contrôle (compilation constante) |
+| --- | --- | --- |
+| `Pipeline_ConvertDeterminizeMinimize` net9 → net10 | **−26,8 %**, intervalles disjoints → établi | **−14,0 %**, intervalles qui se recouvrent → **non établi** |
+| `Determinize_plus_MinimizeHopcroft_L15` net8 → net9 | **−20,8 %** → établi dans la session | **non testable** : net8 n'entre pas dans une comparaison à IL constante |
+| Paires séparables | 3 sur 18 | **0 sur 18** |
+| Axe allocation | concluant, négatif (≤ 0,92 %) | concluant, négatif (≤ 0,28 %) |
+
+Ce qui reste vrai de la session : les **valeurs** sont réelles et
+reproductibles avec le protocole qu'elle a suivi ; le gain .NET 11 y est non
+établi ; l'axe allocation y est concluant et négatif ; la charge d'hôte y est
+mesurée et publiée.
+
 ## Limites connues
 
 - **5 passes** : l'intervalle de mesure est celui de 5 points ; une session plus
   longue resserrerait les intervalles et pourrait rendre séparables des paires
   aujourd'hui dans le bruit. Le sens des conclusions (10 → 11 non séparé sur
-  les six axes ; 9 → 10 établi sur le pipeline symbolique) est robuste à ce
-  degré de précision, mais **une amplification d'axe par plus de passes reste
-  possible**.
+  les six axes) est robuste à ce degré de précision, mais **une amplification
+  d'axe par plus de passes reste possible**. Le contrôle croisé à compilation
+  constante montre par ailleurs que le 9 → 10, lui, ne survit pas au
+  protocole de référence : ses dispersions vont jusqu'à 85,8 %, contre 47–69 %
+  dans la session.
 - **Poste chargé** : voir la section précédente — la limite assumée d'une
   session unique sur un poste partagé.
 - **Versions patch** : 8.0.33 / 9.0.22 / 10.0.14 / 11.0.0-rc.3. Une autre

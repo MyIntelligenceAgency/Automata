@@ -10,6 +10,13 @@ net11.0), mesurés dans une session unique sur le même poste, est dans
 écart inter-runtime, les valeurs absolues des baselines antérieures ayant été
 mesurées sur une autre machine.
 
+**Réserve du 2026-11-10, même jour** : un contrôle croisé à compilation
+constante (`CONTROL-single-build-2026-11-10.md`) a **retiré** le verdict
+« établi » que la table de comparaison portait sur l'axe net9 → net10. Les
+valeurs absolues de cette baseline ne sont pas en cause — elles restent
+valides pour la version qu'elles décrivent — mais tout écart inter-runtime lu
+dans la table de comparaison doit être lu avec cette réserve.
+
 ## Environnement
 
 | Élément | Valeur |
